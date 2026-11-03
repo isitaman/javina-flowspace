@@ -1,0 +1,19 @@
+# dependensi & hasil build
+node_modules/
+package-lock.json.bak
+
+# cache CLI Firebase (hasil deploy lokal)
+web/.firebase/
+.firebase/
+
+# hasil tes (screenshot, backup unduhan, log)
+tests/out/
+
+# log & sampah OS
+*.log
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/

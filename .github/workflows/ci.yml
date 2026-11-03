@@ -1,0 +1,43 @@
+name: FlowSpace CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Syntax check (web/js + tests)
+        run: npm run test:check
+
+      - name: E2E (local mode, tanpa Firebase)
+        run: npm test
+        env:
+          # CI tidak punya MS Edge; pakai Chromium bawaan Playwright.
+          PW_BROWSER: chromium
+
+      # Belum aktif: deploy butuh token Firebase (secret FIREEBASE_TOKEN)
+      # dan hanya boleh jalan dari branch main.
+      # - name: Deploy to Firebase Hosting
+      #   if: github.ref == 'refs/heads/main'
+      #   run: npx firebase deploy --only hosting
+      #   working-directory: web
+      #   env:
+      #     FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

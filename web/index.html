@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlowSpace - Workflow Visual Canvas</title>
+  <!-- Google Fonts: Fraunces (display), Archivo (sans), IBM Plex Mono (mono) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Saring rejection transport yang memang bukan kegagalan aplikasi.
+       Handler ini dipasang paling awal (sebelum SDK Firebase) supaya
+       `Uncaught (in promise)` dari WebChannel/relayer Google tidak
+       membanjiri console saat token auth berganti.
+       - AbortError: request Firestore dibatalkan ketika kredensial berubah.
+       - "message channel closed": pesan dari iframe relayer Google /
+         ekstensi browser yang kanal komunikasinya sudah ditutup. -->
+  <script>
+    window.addEventListener('unhandledrejection', function (event) {
+      var reason = event.reason || {};
+      var text = String(reason.message || reason || '');
+      var name = String(reason.name || '');
+      var benign = name === 'AbortError'
+        || /signal is aborted|aborted without reason/i.test(text)
+        || /message channel closed before a response was received/i.test(text);
+      if (benign) event.preventDefault();
+    });
+  </script>
+
+  <!-- Tailwind CSS (self-hosted, versi dikunci) -->
+  <script src="vendor/tailwind-3.4.16.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#F6F4EE',
+            card: '#FFFFFF',
+            line: '#E5E1D4',
+            ink: '#1C2620',
+            inksoft: '#5C665D',
+            forest: '#16352A',
+            fern: '#2F7D5B',
+            ferndeep: '#235C43',
+            fernlight: '#7FB598',
+            clay: '#C2603A',
+            amber: '#D9A13B',
+            berry: '#A8443A',
+            sage: '#8AA596',
+          },
+          fontFamily: {
+            display: ['Fraunces', 'Georgia', 'serif'],
+            sans: ['Archivo', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+  <!-- Drawflow library untuk canvas editor (self-hosted, versi dikunci) -->
+  <link rel="stylesheet" href="vendor/drawflow-0.0.59.min.css">
+  <script src="vendor/drawflow-0.0.59.min.js"></script>
+  <!-- Lucide icons (self-hosted, versi dikunci) -->
+  <script src="vendor/lucide-1.65.0.min.js"></script>
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-paper text-ink antialiased h-screen overflow-hidden">
+  <div id="app" class="flex h-screen w-full overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed md:static inset-y-0 left-0 z-40 w-[248px] bg-forest text-[#E7EDE6] flex flex-col shrink-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300">
+      <div class="flex items-center gap-2.5 h-14 px-4 border-b border-white/10 shrink-0">
+        <div class="h-8 w-8 rounded-lg bg-fernlight/15 text-fernlight flex items-center justify-center shrink-0">
+          <i data-lucide="boxes" class="h-[18px] w-[18px]"></i>
+        </div>
+        <div class="flex flex-col min-w-0 leading-tight">
+          <span class="font-display text-[15px] font-semibold tracking-tight text-white">FlowSpace</span>
+          <span id="ws-name" class="text-[10px] font-mono text-white/45 truncate">Loading...</span>
+        </div>
+        <button id="sidebar-close" class="md:hidden ml-auto h-8 w-8 flex items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" id="nav-menu">
+        <!-- diisi JS -->
+      </nav>
+      <div class="border-t border-white/10 p-3 shrink-0">
+        <div class="flex items-center gap-2 px-1">
+          <span class="live-dot"></span>
+          <span id="sync-label" class="font-mono uppercase tracking-[0.18em] text-[9px] text-[#6E8574]">Live · Local</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Backdrop (mobile) -->
+    <div id="sidebar-backdrop" class="fixed inset-0 z-30 bg-ink/40 backdrop-blur-sm hidden md:hidden"></div>
+
+    <!-- Main -->
+    <div class="flex flex-1 flex-col min-w-0">
+      <header class="h-14 border-b border-line bg-card flex items-center gap-3 px-4 md:px-6 shrink-0">
+        <button id="hamburger-btn" class="md:hidden -ml-1 h-9 w-9 flex items-center justify-center rounded-md text-inksoft hover:bg-paper hover:text-ink">
+          <i data-lucide="menu" class="h-5 w-5"></i>
+        </button>
+        <div class="flex items-center gap-2 text-sm min-w-0" id="header-breadcrumb">
+          <span class="font-medium">Dashboard</span>
+        </div>
+        <div class="flex-1"></div>
+        <div class="relative hidden md:block">
+          <i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-inksoft/50"></i>
+          <input id="search-input" type="text" readonly aria-label="Cari di FlowSpace (Ctrl K)"
+            placeholder="Cari apa saja…  Ctrl K" class="pl-8 pr-3 py-1.5 w-56 text-sm border border-line rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-fern/40 cursor-pointer">
+        </div>
+        <button id="search-mobile-btn" type="button" class="md:hidden h-9 w-9 flex items-center justify-center rounded-md text-inksoft hover:bg-paper hover:text-ink shrink-0" aria-label="Cari di FlowSpace" title="Cari">
+          <i data-lucide="search" class="h-[18px] w-[18px]"></i>
+        </button>
+        <!-- Notifikasi: komentar pada task/workflow kita, penugasan baru,
+             dan (untuk admin) task yang selesai. -->
+        <button id="notif-btn" type="button" class="notif-btn h-9 w-9 flex items-center justify-center rounded-md text-inksoft hover:bg-paper hover:text-ink shrink-0"
+          aria-haspopup="dialog" aria-expanded="false" aria-label="Notifikasi" title="Notifikasi">
+          <i data-lucide="bell" class="h-[18px] w-[18px]"></i>
+          <span id="notif-badge" class="notif-badge hidden" aria-hidden="true">0</span>
+        </button>
+        <div id="user-info" class="flex items-center gap-2 pl-3 border-l border-line"></div>
+      </header>
+      <main id="main-content" class="flex-1 overflow-hidden min-h-0">
+        <!-- View container -->
+        <div id="view-container" class="h-full w-full overflow-auto p-6">
+          <div class="flex items-center justify-center h-full text-inksoft/60">
+            <div class="text-center">
+              <i data-lucide="loader-2" class="h-8 w-8 animate-spin mx-auto mb-2"></i>
+              Memuat FlowSpace...
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Task Detail drawer -->
+  <div id="task-drawer" class="fixed inset-0 z-50 hidden">
+    <div id="drawer-backdrop" class="absolute inset-0 bg-ink/40"></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full sm:max-w-lg bg-card shadow-soft flex flex-col">
+      <div id="drawer-content" class="flex-1 overflow-y-auto">
+        <!-- diisi JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2 max-w-sm pointer-events-none"></div>
+
+  <!-- Firebase SDK (compat build agar cocok dengan script klasik)
+       v13.1.0 memuat perbaikan race target watch Firestore (ca9) dan
+       perbaikan Auth yang tidak lagi menghapus sesi saat server transient
+       error — keduanya tidak ada di 10.14.1. Jangan turunkan tanpa menguji
+       ulang login akun lama/baru. -->
+  <script src="https://www.gstatic.com/firebasejs/13.1.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/13.1.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore-compat.js"></script>
+
+  <!-- Konfigurasi harus dimuat sebelum store.js (menentukan kunci cache) -->
+  <script src="js/firebase-config.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/firebase.js"></script>
+  <script src="js/auth-ui.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/notifications.js"></script>
+  <script src="js/search.js"></script>
+</body>
+</html>

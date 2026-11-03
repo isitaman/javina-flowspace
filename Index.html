@@ -1,0 +1,2299 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlowSpace - Workflow Visual Canvas</title>
+  <!-- Tailwind CSS via CDN (JIT mode) -->
+  <script src="https://cdn.tailwindcss.com?plugins=typography,forms,aspect-ratio"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            emerald: {
+              50: '#ecfdf5', 100: '#d1fae5', 200: '#a7f3d0', 300: '#6ee7b7',
+              400: '#34d399', 500: '#10b981', 600: '#059669', 700: '#047857',
+              800: '#065f46', 900: '#064e3b',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Drawflow library untuk canvas editor -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow@0.0.59/dist/drawflow.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow@0.0.59/dist/drawflow.min.js"></script>
+  <!-- Lucide icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+<style>
+  /* FlowSpace custom styles */
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* Drawflow customization */
+  .drawflow .drawflow-node {
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    color: #1f2937;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: box-shadow 0.2s, border-color 0.2s;
+    padding: 0;
+  }
+  .drawflow .drawflow-node.selected {
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  }
+  .drawflow .drawflow-node:hover { box-shadow: 0 4px 6px rgba(0,0,0,0.15); }
+  .drawflow .drawflow-node .input, .drawflow .drawflow-node .output {
+    position: absolute;
+    background: #10b981;
+    border: 2px solid white;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    z-index: 3;
+    cursor: crosshair;
+  }
+  /* Port di 4 sisi: kiri (input_1), kanan (output_1), atas (input_2), bawah (output_2) */
+  .drawflow .drawflow-node .input.input_1 { left: -7px; top: 50%; right: auto; bottom: auto; transform: translateY(-50%); }
+  .drawflow .drawflow-node .input.input_2 { top: -7px; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
+  .drawflow .drawflow-node .output.output_1 { right: -7px; top: 50%; left: auto; bottom: auto; transform: translateY(-50%); }
+  .drawflow .drawflow-node .output.output_2 { bottom: -7px; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
+  .drawflow .connection .main-path {
+    stroke: #94a3b8 !important;
+    stroke-width: 2 !important;
+  }
+  .drawflow .drawflow-node .title {
+    font-size: 12px;
+    font-weight: 600;
+    background: transparent;
+    padding: 4px 8px;
+    color: #1f2937;
+  }
+  .drawflow-node-custom {
+    padding: 8px;
+    min-height: 60px;
+  }
+  .drawflow-node-custom .node-meta {
+    font-size: 10px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+  .drawflow-node-custom .node-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    word-break: break-word;
+    margin-bottom: 2px;
+  }
+  .drawflow-node-custom .node-desc {
+    font-size: 11px;
+    color: #6b7280;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .drawflow-node-custom .node-task {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  /* Node type variants */
+  .drawflow-node.type-start_end { border-radius: 999px; border-color: #10b981; }
+  .drawflow-node.type-start_end .node-meta { color: #10b981; }
+  .drawflow-node.type-process { border-color: #3b82f6; }
+  .drawflow-node.type-process .node-meta { color: #3b82f6; }
+  .drawflow-node.type-task { border-color: #10b981; border-width: 2px; }
+  .drawflow-node.type-task .node-meta { color: #10b981; }
+  /* Decision = bentuk wajik (diamond) */
+  .drawflow-node.type-decision {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    min-height: 150px;
+  }
+  .drawflow .drawflow-node.type-decision.selected {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .drawflow .drawflow-node.type-decision:hover { box-shadow: none; }
+  .drawflow-node.type-decision::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 70.7%;
+    aspect-ratio: 1 / 1;
+    transform: translate(-50%, -50%) rotate(45deg);
+    background: #fff;
+    border: 2px solid #f59e0b;
+    border-radius: 5px;
+    z-index: -1;
+  }
+  .drawflow-node.type-decision.selected::before { border-color: #10b981; }
+  .drawflow-node.type-decision .drawflow-node-custom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 150px;
+  }
+  .drawflow-node.type-decision .node-meta { color: #f59e0b; }
+  .drawflow-node.type-application { border-color: #a855f7; }
+  .drawflow-node.type-application .node-meta { color: #a855f7; }
+  .drawflow-node.type-note { border-color: #eab308; background: #fefce8; }
+  .drawflow-node.type-note .node-meta { color: #a16207; }
+
+  /* Badge */
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 4px; }
+  .badge-backlog { background: #f1f5f9; color: #475569; }
+  .badge-todo { background: #f3f4f6; color: #374151; }
+  .badge-in_progress { background: #dbeafe; color: #1d4ed8; }
+  .badge-review { background: #fef3c7; color: #b45309; }
+  .badge-done { background: #d1fae5; color: #047857; }
+  .badge-critical { background: #fee2e2; color: #b91c1c; }
+  .badge-high { background: #fed7aa; color: #c2410c; }
+  .badge-medium { background: #fef9c3; color: #a16207; }
+  .badge-low { background: #f1f5f9; color: #475569; }
+
+  .priority-dot { display: inline-block; height: 8px; width: 8px; border-radius: 50%; }
+  .priority-dot.critical { background: #ef4444; }
+  .priority-dot.high { background: #f97316; }
+  .priority-dot.medium { background: #eab308; }
+  .priority-dot.low { background: #94a3b8; }
+
+  /* Kanban */
+  .kanban-col { width: 18rem; flex-shrink: 0; display: flex; flex-direction: column; height: 100%; }
+  .kanban-col-body {
+    flex: 1; border-radius: 8px; border: 1px dashed transparent;
+    background: rgba(243,244,246,0.5); padding: 8px; overflow-y: auto; min-height: 0;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .kanban-col-body.drag-over {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: #10b981;
+  }
+  .kanban-card {
+    background: white; border: 1px solid #e5e7eb; border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    cursor: grab; transition: box-shadow 0.2s, border-color 0.2s;
+  }
+  .kanban-card:hover { box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-color: #6ee7b7; }
+  .kanban-card.dragging { opacity: 0.4; }
+  .kanban-card:active { cursor: grabbing; }
+
+  /* Toast */
+  .toast {
+    pointer-events: auto;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    font-size: 14px;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: slide-in 0.2s ease-out;
+  }
+  .toast-success { background: #059669; }
+  .toast-error { background: #dc2626; }
+  .toast-info { background: #4b5563; }
+  @keyframes slide-in {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  /* Loading spinner */
+  .spinner {
+    display: inline-block;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    width: 16px; height: 16px;
+    animation: spin 0.6s linear infinite;
+  }
+  .spinner-dark {
+    border-color: rgba(0,0,0,0.1);
+    border-top-color: #6b7280;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Hide elements */
+  [data-hidden="true"] { display: none !important; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 4px; padding: 6px 12px; font-size: 13px; font-weight: 500;
+    border-radius: 6px; border: 1px solid transparent; cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .btn-primary { background: #059669; color: white; }
+  .btn-primary:hover { background: #047857; }
+  .btn-secondary { background: white; border-color: #e5e7eb; color: #374151; }
+  .btn-secondary:hover { background: #f9fafb; }
+  .btn-danger { background: #dc2626; color: white; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-ghost { background: transparent; color: #6b7280; }
+  .btn-ghost:hover { background: #f3f4f6; }
+  .btn-sm { padding: 4px 8px; font-size: 12px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Form */
+  .form-input, .form-select, .form-textarea {
+    width: 100%; padding: 6px 10px; font-size: 13px;
+    border: 1px solid #e5e7eb; border-radius: 6px;
+    background: white; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    outline: none; border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  }
+  .form-label { font-size: 12px; font-weight: 500; color: #6b7280; margin-bottom: 4px; display: block; }
+
+  /* Empty state */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 48px 16px; text-align: center; color: #6b7280;
+  }
+  .empty-state .empty-icon {
+    width: 48px; height: 48px; border-radius: 50%; background: #f3f4f6;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
+  }
+</style>
+
+  
+</head>
+<body class="bg-gray-50 text-gray-900 antialiased h-screen overflow-hidden">
+  <div id="app" class="flex h-screen w-full overflow-hidden">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
+      <div class="flex items-center gap-2 h-14 px-3 border-b border-gray-200">
+        <div class="h-8 w-8 rounded-md bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shrink-0">
+          <i data-lucide="boxes" class="h-5 w-5"></i>
+        </div>
+        <div class="flex flex-col min-w-0">
+          <span class="text-sm font-semibold truncate">FlowSpace</span>
+          <span id="ws-name" class="text-[10px] text-gray-500 truncate">Loading...</span>
+        </div>
+      </div>
+      <nav class="flex-1 px-2 py-3 space-y-1" id="nav-menu">
+        <!-- diisi JS -->
+      </nav>
+      <div class="border-t border-gray-200 p-2">
+        <button id="collapse-btn" class="flex w-full items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100">
+          <i data-lucide="chevron-left" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="flex flex-1 flex-col min-w-0">
+      <header class="h-14 border-b border-gray-200 bg-white flex items-center gap-3 px-4 shrink-0">
+        <div class="flex items-center gap-2 text-sm min-w-0" id="header-breadcrumb">
+          <span class="font-medium">Dashboard</span>
+        </div>
+        <div class="flex-1"></div>
+        <div class="relative hidden md:block">
+          <i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"></i>
+          <input id="search-input" type="text" placeholder="Cari task..." class="pl-8 pr-3 py-1.5 w-56 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        </div>
+        <div id="user-info" class="flex items-center gap-2 pl-2 border-l border-gray-200"></div>
+      </header>
+      <main id="main-content" class="flex-1 overflow-hidden min-h-0">
+        <!-- View container -->
+        <div id="view-container" class="h-full w-full overflow-auto p-6">
+          <div class="flex items-center justify-center h-full text-gray-400">
+            <div class="text-center">
+              <i data-lucide="loader-2" class="h-8 w-8 animate-spin mx-auto mb-2"></i>
+              Memuat FlowSpace...
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Task Detail drawer -->
+  <div id="task-drawer" class="fixed inset-0 z-50 hidden">
+    <div id="drawer-backdrop" class="absolute inset-0 bg-black/40"></div>
+    <div class="absolute right-0 top-0 bottom-0 w-full sm:max-w-lg bg-white shadow-xl flex flex-col">
+      <div id="drawer-content" class="flex-1 overflow-y-auto">
+        <!-- diisi JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2 max-w-sm pointer-events-none"></div>
+
+
+<script>
+/* ============================================================
+ * FlowSpace - Frontend JavaScript (vanilla)
+ * ============================================================ */
+
+// State management sederhana
+const State = {
+  view: { kind: 'dashboard' },
+  init: null,
+  currentWorkflowId: null,
+  currentWorkflowName: '',
+  canvasDirty: false,
+  canvasSaving: false,
+  canvasLoading: false,
+  canvasVersion: 1,
+  editor: null, // Drawflow instance
+  kanbanFilters: {},
+  taskDrawer: { taskId: null },
+  categories: [], // Kategori aplikasi (dimuat dari server)
+};
+
+// Konstanta frontend
+const STATUSES = [
+  { id: 'backlog', label: 'Backlog' },
+  { id: 'todo', label: 'To Do' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'review', label: 'Review' },
+  { id: 'done', label: 'Done' },
+];
+const PRIORITIES = [
+  { id: 'critical', label: 'Critical' },
+  { id: 'high', label: 'High' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'low', label: 'Low' },
+];
+const NODE_TYPES = [
+  { id: 'start_end', label: 'Start/End', icon: 'circle' },
+  { id: 'process', label: 'Process', icon: 'square' },
+  { id: 'task', label: 'Task', icon: 'check-square' },
+  { id: 'decision', label: 'Decision', icon: 'diamond' },
+  { id: 'application', label: 'Application', icon: 'app-window' },
+  { id: 'note', label: 'Note', icon: 'sticky-note' },
+];
+const APP_CATEGORIES = ['Communication','Documentation','Internal System','Dashboard','CRM','Form','Spreadsheet','Other'];
+const STATUS_LABEL = Object.fromEntries(STATUSES.map(s => [s.id, s.label]));
+const PRIORITY_LABEL = Object.fromEntries(PRIORITIES.map(p => [p.id, p.label]));
+
+/* ============================================================
+ * Utility helpers
+ * ============================================================ */
+
+function $(selector, parent = document) { return parent.querySelector(selector); }
+function $$(selector, parent = document) { return Array.from(parent.querySelectorAll(selector)); }
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch (e) { return dateStr; }
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return iso; }
+}
+
+function isOverdue(dueDate, status) {
+  if (!dueDate || status === 'done') return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return dueDate < today;
+}
+
+function refreshIcons() {
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================================
+ * API wrapper untuk google.script.run
+ * ============================================================ */
+
+function callServer(fnName, ...args) {
+  return new Promise((resolve) => {
+    if (typeof google === 'undefined' || !google.script) {
+      // Di luar Apps Script (testing) - mock
+      console.warn('Mock google.script.run untuk', fnName);
+      setTimeout(() => resolve({ success: false, message: 'Mock mode', errorCode: 'NO_GAS' }), 50);
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((err) => {
+        resolve({ success: false, message: (err && err.message) || String(err), errorCode: 'SERVER_ERROR' });
+      })
+      [fnName](...args);
+  });
+}
+
+/* ============================================================
+ * Toast notifications
+ * ============================================================ */
+
+function toast(message, type = 'success', description = '') {
+  const container = $('#toast-container');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
+  el.innerHTML = `<i data-lucide="${icon}" class="h-4 w-4"></i><div><div>${escapeHtml(message)}</div>${description ? `<div class="text-xs opacity-80">${escapeHtml(description)}</div>` : ''}</div>`;
+  container.appendChild(el);
+  refreshIcons();
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, 3500);
+}
+
+/* ============================================================
+ * Navigation
+ * ============================================================ */
+
+const NAV_ITEMS = [
+  { label: 'Dashboard', icon: 'layout-dashboard', view: { kind: 'dashboard' } },
+  { label: 'Workflows', icon: 'workflow', view: { kind: 'workflows' } },
+  { label: 'Kanban Board', icon: 'trello', view: { kind: 'kanban' } },
+  { label: 'Application Hub', icon: 'app-window', view: { kind: 'applications' } },
+  { label: 'Team & Members', icon: 'users', view: { kind: 'team' } },
+  { label: 'Settings', icon: 'settings', view: { kind: 'settings' } },
+];
+
+function renderNav() {
+  const nav = $('#nav-menu');
+  nav.innerHTML = NAV_ITEMS.map(item => `
+    <button data-view="${item.view.kind}" class="nav-btn flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${State.view.kind === item.view.kind || (item.view.kind === 'workflows' && State.view.kind === 'canvas') ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-100'}">
+      <i data-lucide="${item.icon}" class="h-4 w-4 shrink-0"></i>
+      <span class="truncate">${item.label}</span>
+    </button>
+  `).join('');
+  $$('.nav-btn', nav).forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.view;
+      const item = NAV_ITEMS.find(i => i.view.kind === v);
+      if (item) setView(item.view);
+    });
+  });
+  refreshIcons();
+}
+
+function setView(view) {
+  State.view = view;
+  if (view.kind !== 'canvas') {
+    State.currentWorkflowId = null;
+  }
+  renderNav();
+  renderHeader();
+  renderView();
+}
+
+function renderHeader() {
+  const bc = $('#header-breadcrumb');
+  if (State.view.kind === 'canvas') {
+    bc.innerHTML = `
+      <span class="text-gray-500">FlowSpace</span>
+      <i data-lucide="chevron-right" class="h-3 w-3 text-gray-400"></i>
+      <button class="text-gray-500 hover:text-gray-900" id="back-to-workflows">Workflows</button>
+      <i data-lucide="chevron-right" class="h-3 w-3 text-gray-400"></i>
+      <span class="font-medium truncate max-w-[300px]">${escapeHtml(State.currentWorkflowName)}</span>
+    `;
+    setTimeout(() => {
+      const backBtn = $('#back-to-workflows');
+      if (backBtn) backBtn.addEventListener('click', () => setView({ kind: 'workflows' }));
+    }, 0);
+  } else {
+    const titles = { dashboard: 'Dashboard', workflows: 'Workflows', kanban: 'Kanban Board', applications: 'Application Hub', team: 'Team & Members', settings: 'Settings' };
+    bc.innerHTML = `<span class="font-medium">${titles[State.view.kind] || 'FlowSpace'}</span>`;
+  }
+  // User info
+  const ui = $('#user-info');
+  if (State.init && State.init.currentUser) {
+    const u = State.init.currentUser;
+    const initials = u.displayName.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+    ui.innerHTML = `
+      <div class="h-8 w-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-semibold">${initials}</div>
+      <div class="hidden sm:flex flex-col">
+        <span class="text-xs font-medium leading-tight">${escapeHtml(u.displayName)}</span>
+        <span class="text-[10px] text-gray-500 capitalize">${u.role}</span>
+      </div>
+    `;
+  }
+  refreshIcons();
+}
+
+/* ============================================================
+ * View renderer dispatch
+ * ============================================================ */
+
+async function renderView() {
+  const container = $('#view-container');
+  // Reset
+  container.className = 'h-full w-full overflow-hidden';
+  switch (State.view.kind) {
+    case 'dashboard': return renderDashboard(container);
+    case 'workflows': return renderWorkflows(container);
+    case 'canvas': return renderCanvas(container);
+    case 'kanban': return renderKanban(container);
+    case 'applications': return renderApplications(container);
+    case 'team': return renderTeam(container);
+    case 'settings': return renderSettings(container);
+    default: container.innerHTML = '<div class="p-6">Unknown view</div>';
+  }
+}
+
+/* ============================================================
+ * Dashboard View
+ * ============================================================ */
+
+async function renderDashboard(container) {
+  container.className = 'h-full w-full overflow-auto p-6 space-y-6';
+  container.innerHTML = `<div class="flex items-center gap-2 text-gray-500"><div class="spinner spinner-dark"></div>Memuat dashboard...</div>`;
+  const res = await callServer('getDashboardData');
+  if (!res.success) {
+    container.innerHTML = `<div class="text-red-600 p-4">${escapeHtml(res.message || 'Gagal memuat')}</div>`;
+    return;
+  }
+  const d = res.data;
+  const memberMap = {};
+  if (State.init && State.init.members) State.init.members.forEach(m => memberMap[m.email] = m.displayName);
+
+  const stats = [
+    { label: 'Total Task', value: d.total, icon: 'list-todo', color: 'bg-slate-100 text-slate-700' },
+    { label: 'Selesai', value: d.done, icon: 'check-circle-2', color: 'bg-emerald-100 text-emerald-700' },
+    { label: 'Sedang Dikerjakan', value: d.inProgress, icon: 'circle-dashed', color: 'bg-blue-100 text-blue-700' },
+    { label: 'Overdue', value: d.overdue, icon: 'alert-triangle', color: 'bg-red-100 text-red-700' },
+  ];
+
+  const priorityStats = [
+    { label: 'Critical', value: d.priority.critical, dot: 'bg-red-500' },
+    { label: 'High', value: d.priority.high, dot: 'bg-orange-500' },
+    { label: 'Medium', value: d.priority.medium, dot: 'bg-yellow-500' },
+    { label: 'Low', value: d.priority.low, dot: 'bg-slate-400' },
+  ];
+
+  container.innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      ${stats.map(s => `
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xs text-gray-500">${s.label}</p>
+              <p class="text-2xl font-semibold mt-1">${s.value}</p>
+            </div>
+            <div class="h-10 w-10 rounded-lg flex items-center justify-center ${s.color}">
+              <i data-lucide="${s.icon}" class="h-5 w-5"></i>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="bg-white border border-gray-200 rounded-lg p-4">
+        <h3 class="text-sm font-medium flex items-center gap-2 mb-3">
+          <i data-lucide="trending-up" class="h-4 w-4 text-emerald-500"></i>
+          Rata-rata Progress
+        </h3>
+        <div class="flex items-end gap-2 mb-2">
+          <span class="text-3xl font-semibold">${d.avgProgress}%</span>
+          <span class="text-xs text-gray-500 pb-1">dari ${d.total} task</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2"><div class="bg-emerald-500 h-2 rounded-full transition-all" style="width:${d.avgProgress}%"></div></div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-4 lg:col-span-2">
+        <h3 class="text-sm font-medium mb-3">Distribusi Priority</h3>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          ${priorityStats.map(p => `
+            <div class="flex flex-col items-center justify-center p-3 rounded-lg bg-gray-50">
+              <div class="flex items-center gap-1.5 mb-1">
+                <span class="inline-block h-2 w-2 rounded-full ${p.dot}"></span>
+                <span class="text-xs text-gray-500">${p.label}</span>
+              </div>
+              <span class="text-2xl font-semibold">${p.value}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white border border-gray-200 rounded-lg">
+      <div class="px-4 py-3 border-b border-gray-200">
+        <h3 class="text-sm font-medium flex items-center gap-2">
+          <i data-lucide="alert-triangle" class="h-4 w-4 text-orange-500"></i>
+          Task Critical/High yang belum selesai
+        </h3>
+      </div>
+      ${d.criticalHigh.length === 0 ? `
+        <div class="px-6 py-8 text-center text-sm text-gray-500">Tidak ada task critical/high yang tertunda.</div>
+      ` : `
+        <div class="divide-y border-t border-gray-200">
+          ${d.criticalHigh.slice(0, 8).map(t => {
+            const memberName = (t.assigneeEmail && memberMap[t.assigneeEmail]) || t.assigneeEmail || 'Unassigned';
+            const initials = memberName.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+            const overdue = isOverdue(t.dueDate, 'active');
+            return `
+              <button class="task-row-${escapeHtml(t.id)} flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 text-left" data-task-id="${escapeHtml(t.id)}">
+                <span class="priority-dot ${escapeHtml(t.priority)}"></span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium truncate">${escapeHtml(t.title)}</p>
+                  <p class="text-xs text-gray-500 truncate">${escapeHtml(t.workflow.name)}</p>
+                </div>
+                <span class="badge badge-${escapeHtml(t.priority)}">${escapeHtml(PRIORITY_LABEL[t.priority])}</span>
+                <span class="text-xs ${overdue ? 'text-red-600 font-medium' : 'text-gray-500'} flex items-center gap-1">
+                  <i data-lucide="${overdue ? 'alert-circle' : 'clock'}" class="h-3 w-3"></i>
+                  ${formatDate(t.dueDate)}
+                </span>
+                <span class="h-7 w-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-semibold">${initials}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="bg-white border border-gray-200 rounded-lg">
+        <div class="px-4 py-3 border-b border-gray-200">
+          <h3 class="text-sm font-medium flex items-center gap-2">
+            <i data-lucide="users" class="h-4 w-4 text-emerald-500"></i>
+            Ringkasan per PIC
+          </h3>
+        </div>
+        ${d.byPic.length === 0 ? `<div class="px-6 py-8 text-center text-sm text-gray-500">Belum ada PIC.</div>` : `
+          <div class="divide-y border-t border-gray-200">
+            ${d.byPic.slice(0, 6).map(p => {
+              const name = memberMap[p.email] || p.email;
+              const completion = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+              const initials = name.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+              return `
+                <div class="flex items-center gap-3 px-4 py-3">
+                  <span class="h-8 w-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-semibold">${initials}</span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate">${escapeHtml(name)}</p>
+                    <div class="flex items-center gap-2 mt-1">
+                      <div class="flex-1 bg-gray-200 rounded-full h-1.5"><div class="bg-emerald-500 h-1.5 rounded-full" style="width:${completion}%"></div></div>
+                      <span class="text-[10px] text-gray-500">${p.done}/${p.total}</span>
+                    </div>
+                  </div>
+                  ${p.overdue > 0 ? `<span class="text-[10px] text-red-600 font-medium bg-red-100 px-1.5 py-0.5 rounded">${p.overdue} overdue</span>` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+
+      <div class="bg-white border border-gray-200 rounded-lg">
+        <div class="px-4 py-3 border-b border-gray-200">
+          <h3 class="text-sm font-medium flex items-center gap-2">
+            <i data-lucide="workflow" class="h-4 w-4 text-emerald-500"></i>
+            Progress per Workflow
+          </h3>
+        </div>
+        ${d.byWorkflow.length === 0 ? `<div class="px-6 py-8 text-center text-sm text-gray-500">Belum ada workflow.</div>` : `
+          <div class="divide-y border-t border-gray-200">
+            ${d.byWorkflow.map(w => `
+              <button class="workflow-row-${escapeHtml(w.id)} flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 text-left" data-workflow-id="${escapeHtml(w.id)}" data-workflow-name="${escapeHtml(w.name)}">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium truncate">${escapeHtml(w.name)}</p>
+                  <div class="flex items-center gap-2 mt-1">
+                    <div class="flex-1 bg-gray-200 rounded-full h-1.5"><div class="bg-emerald-500 h-1.5 rounded-full" style="width:${w.progress}%"></div></div>
+                    <span class="text-[10px] text-gray-500">${w.done}/${w.total} done</span>
+                  </div>
+                </div>
+                <span class="text-xs font-semibold text-emerald-600">${w.progress}%</span>
+              </button>
+            `).join('')}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+  refreshIcons();
+  // Attach handlers
+  $$('[class*="task-row-"]', container).forEach(btn => btn.addEventListener('click', () => openTaskDrawer(btn.dataset.taskId)));
+  $$('[class*="workflow-row-"]', container).forEach(btn => btn.addEventListener('click', () => {
+    setView({ kind: 'canvas', workflowId: btn.dataset.workflowId, workflowName: btn.dataset.workflowName });
+  }));
+}
+
+/* ============================================================
+ * Workflows View
+ * ============================================================ */
+
+async function renderWorkflows(container) {
+  container.className = 'h-full w-full overflow-auto p-6';
+  container.innerHTML = `
+    <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Workflows</h1>
+        <p class="text-sm text-gray-500 mt-1">Kelola alur kerja tim. Buka canvas untuk mengedit diagram proses dan menambahkan task.</p>
+      </div>
+      <button id="new-wf-btn" class="btn btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Buat Workflow</button>
+    </div>
+    <div id="wf-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="text-gray-400 flex items-center gap-2"><div class="spinner spinner-dark"></div>Memuat...</div>
+    </div>
+  `;
+  refreshIcons();
+  $('#new-wf-btn').addEventListener('click', () => showWorkflowDialog());
+  await loadWorkflowsList();
+}
+
+async function loadWorkflowsList() {
+  const list = $('#wf-list');
+  const res = await callServer('listWorkflows');
+  if (!res.success || !res.data || res.data.length === 0) {
+    list.innerHTML = `
+      <div class="col-span-full bg-white border border-gray-200 rounded-lg">
+        <div class="empty-state">
+          <div class="empty-icon"><i data-lucide="workflow" class="h-6 w-6 text-gray-400"></i></div>
+          <h3 class="text-lg font-medium mb-1">Belum ada workflow</h3>
+          <p class="text-sm mb-4">Mulai dengan membuat workflow pertama Anda.</p>
+          <button class="btn btn-primary" onclick="showWorkflowDialog()"><i data-lucide="plus" class="h-4 w-4"></i>Buat Workflow</button>
+        </div>
+      </div>
+    `;
+    refreshIcons();
+    return;
+  }
+  list.innerHTML = res.data.map(w => `
+    <div class="bg-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+      <div class="flex items-start justify-between gap-2 mb-3">
+        <button class="open-wf-${escapeHtml(w.id)} flex-1 min-w-0 text-left" data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}">
+          <h3 class="font-medium leading-tight line-clamp-2 hover:text-emerald-600">${escapeHtml(w.name)}</h3>
+        </button>
+        <div class="relative">
+          <button class="wf-menu-${escapeHtml(w.id)} btn btn-ghost btn-sm" data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" data-wf-version="${w.version}"><i data-lucide="more-vertical" class="h-4 w-4"></i></button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 line-clamp-2 mb-3 min-h-[2.5rem]">${escapeHtml(w.description || 'Tidak ada deskripsi')}</p>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-xs"><span class="text-gray-500">Progress</span><span class="font-medium text-emerald-600">${w.progress}%</span></div>
+        <div class="bg-gray-200 rounded-full h-1.5"><div class="bg-emerald-500 h-1.5 rounded-full" style="width:${w.progress}%"></div></div>
+      </div>
+      <div class="flex items-center justify-between mt-3 pt-3 border-t text-xs text-gray-500">
+        <span class="flex items-center gap-1"><i data-lucide="list-todo" class="h-3 w-3"></i>${w.taskCount} task</span>
+        <span class="flex items-center gap-1"><i data-lucide="clock" class="h-3 w-3"></i>${formatDate(w.updatedAt)}</span>
+      </div>
+      <button class="open-wf-${escapeHtml(w.id)} btn btn-secondary btn-sm w-full mt-3" data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}">Buka Canvas<i data-lucide="arrow-right" class="h-3.5 w-3.5"></i></button>
+    </div>
+  `).join('');
+  refreshIcons();
+  // Attach handlers
+  $$(`[class*="open-wf-"]`, list).forEach(btn => {
+    btn.addEventListener('click', () => {
+      setView({ kind: 'canvas', workflowId: btn.dataset.wfId, workflowName: btn.dataset.wfName });
+    });
+  });
+  $$(`[class*="wf-menu-"]`, list).forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showWorkflowMenu(btn.dataset.wfId, btn.dataset.wfName, parseInt(btn.dataset.wfVersion, 10));
+    });
+  });
+}
+
+function showWorkflowDialog() {
+  const html = `
+    <div class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full" onclick="event.stopPropagation()">
+        <div class="px-5 py-4 border-b border-gray-200">
+          <h3 class="text-base font-semibold">Buat Workflow Baru</h3>
+        </div>
+        <div class="p-5 space-y-4">
+          <div>
+            <label class="form-label">Nama Workflow</label>
+            <input type="text" id="wf-name-input" class="form-input" placeholder="Contoh: Onboarding Karyawan Baru">
+          </div>
+          <div>
+            <label class="form-label">Deskripsi</label>
+            <textarea id="wf-desc-input" class="form-textarea" rows="3" placeholder="Deskripsikan tujuan workflow..."></textarea>
+          </div>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button class="btn btn-secondary" id="wf-cancel">Batal</button>
+          <button class="btn btn-primary" id="wf-save">Buat</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  const nameInput = $('#wf-name-input');
+  nameInput.focus();
+  $('#wf-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#wf-save').addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    if (!name) { toast('Nama workflow wajib diisi', 'error'); return; }
+    const desc = $('#wf-desc-input').value.trim();
+    const btn = $('#wf-save');
+    btn.disabled = true; btn.innerHTML = '<div class="spinner"></div>';
+    const res = await callServer('createWorkflow', { name, description: desc });
+    btn.disabled = false; btn.innerHTML = 'Buat';
+    if (res.success) {
+      toast('Workflow dibuat');
+      $('#modal-backdrop').remove();
+      loadWorkflowsList();
+    } else toast(res.message || 'Gagal', 'error');
+  });
+}
+
+function showWorkflowMenu(wfId, wfName, version) {
+  const html = `
+    <div class="fixed inset-0 z-40" id="menu-backdrop">
+      <div class="absolute inset-0" id="menu-bg"></div>
+      <div class="absolute right-4 top-20 bg-white border border-gray-200 rounded-md shadow-lg py-1 w-48" id="wf-menu">
+        <button class="wf-edit-${escapeHtml(wfId)} w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2" data-wf-id="${escapeHtml(wfId)}" data-wf-name="${escapeHtml(wfName)}" data-wf-version="${version}">
+          <i data-lucide="pencil" class="h-3.5 w-3.5"></i>Edit nama
+        </button>
+        <button class="wf-dup-${escapeHtml(wfId)} w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2" data-wf-id="${escapeHtml(wfId)}">
+          <i data-lucide="copy" class="h-3.5 w-3.5"></i>Duplikasi
+        </button>
+        <button class="wf-arc-${escapeHtml(wfId)} w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2" data-wf-id="${escapeHtml(wfId)}">
+          <i data-lucide="archive" class="h-3.5 w-3.5"></i>Arsipkan
+        </button>
+        <button class="wf-del-${escapeHtml(wfId)} w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2" data-wf-id="${escapeHtml(wfId)}" data-wf-name="${escapeHtml(wfName)}">
+          <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus permanen
+        </button>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  refreshIcons();
+  $('#menu-bg').addEventListener('click', () => $('#menu-backdrop').remove());
+  $(`.wf-edit-${CSS.escape(wfId)}`).addEventListener('click', (e) => {
+    $('#menu-backdrop').remove();
+    showEditWorkflowDialog(e.currentTarget.dataset.wfId, e.currentTarget.dataset.wfName, parseInt(e.currentTarget.dataset.wfVersion, 10));
+  });
+  $(`.wf-dup-${CSS.escape(wfId)}`).addEventListener('click', async (e) => {
+    $('#menu-backdrop').remove();
+    const res = await callServer('duplicateWorkflow', e.currentTarget.dataset.wfId);
+    if (res.success) { toast('Workflow diduplikasi'); loadWorkflowsList(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+  $(`.wf-arc-${CSS.escape(wfId)}`).addEventListener('click', async (e) => {
+    $('#menu-backdrop').remove();
+    if (!confirm('Arsipkan workflow ini?')) return;
+    const res = await callServer('archiveWorkflow', e.currentTarget.dataset.wfId);
+    if (res.success) { toast('Workflow diarsipkan'); loadWorkflowsList(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+  $(`.wf-del-${CSS.escape(wfId)}`).addEventListener('click', (e) => {
+    $('#menu-backdrop').remove();
+    const { wfId, wfName } = e.currentTarget.dataset;
+    if (!confirm(`Hapus permanen workflow "${wfName}"? Semua node, edge, dan task akan dihapus.`)) return;
+    callServer('deleteWorkflow', wfId).then(res => {
+      if (res.success) { toast('Workflow dihapus'); loadWorkflowsList(); }
+      else toast(res.message || 'Gagal', 'error');
+    });
+  });
+}
+
+async function showEditWorkflowDialog(wfId, name, version) {
+  // Ambil deskripsi terbaru dari server agar tidak tertimpa kosong saat menyimpan.
+  let description = '';
+  const wfRes = await callServer('listWorkflows');
+  if (wfRes.success && Array.isArray(wfRes.data)) {
+    const wf = wfRes.data.find(w => String(w.id) === String(wfId));
+    if (wf) description = wf.description || '';
+  }
+  const html = `
+    <div class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full" onclick="event.stopPropagation()">
+        <div class="px-5 py-4 border-b border-gray-200"><h3 class="text-base font-semibold">Edit Workflow</h3></div>
+        <div class="p-5 space-y-4">
+          <div>
+            <label class="form-label">Nama Workflow</label>
+            <input type="text" id="wf-name-input" class="form-input" value="${escapeHtml(name)}">
+          </div>
+          <div>
+            <label class="form-label">Deskripsi</label>
+            <textarea id="wf-desc-input" class="form-textarea" rows="3">${escapeHtml(description)}</textarea>
+          </div>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button class="btn btn-secondary" id="wf-cancel">Batal</button>
+          <button class="btn btn-primary" id="wf-save" data-wf-id="${escapeHtml(wfId)}" data-wf-version="${version}">Simpan</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  $('#wf-name-input').focus();
+  $('#wf-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#modal-backdrop').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#wf-save').addEventListener('click', async (e) => {
+    const id = e.currentTarget.dataset.wfId;
+    const expectedVersion = parseInt(e.currentTarget.dataset.wfVersion, 10);
+    const newName = $('#wf-name-input').value.trim();
+    const desc = $('#wf-desc-input').value.trim();
+    const res = await callServer('updateWorkflow', { id, name: newName, description: desc, expectedVersion });
+    if (res.success) { toast('Workflow diperbarui'); $('#modal-backdrop').remove(); loadWorkflowsList(); }
+    else if (res.errorCode === 'VERSION_CONFLICT') {
+      toast('Konflik versi', 'error', 'Memuat ulang...');
+      setTimeout(() => loadWorkflowsList(), 1500);
+      $('#modal-backdrop').remove();
+    } else toast(res.message || 'Gagal', 'error');
+  });
+}
+
+/* ============================================================
+ * Canvas View (Drawflow)
+ * ============================================================ */
+
+async function renderCanvas(container) {
+  container.className = 'h-full w-full relative bg-gray-50';
+  const wfId = State.view.workflowId;
+  const wfName = State.view.workflowName;
+  State.currentWorkflowId = wfId;
+  State.currentWorkflowName = wfName;
+  container.innerHTML = `
+    <div class="absolute top-0 left-0 right-0 z-10 bg-white/80 backdrop-blur border-b border-gray-200">
+      <div class="flex items-center justify-between px-4 py-2 gap-3 flex-wrap">
+        <div class="flex items-center gap-3 min-w-0">
+          <h2 class="text-sm font-semibold truncate">${escapeHtml(wfName)}</h2>
+          <span id="save-indicator" class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Tersimpan
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400"></i>
+            <input id="canvas-search" class="pl-8 h-8 w-44 text-xs border border-gray-200 rounded-md" placeholder="Cari node...">
+          </div>
+          <button id="save-canvas-btn" class="btn btn-secondary btn-sm"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
+        </div>
+      </div>
+    </div>
+    <div class="absolute top-12 left-0 bottom-0 z-10 w-48 bg-white border-r border-gray-200 overflow-y-auto">
+      <div class="p-3">
+        <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Palette Node</p>
+        <div class="space-y-1" id="node-palette">
+          ${NODE_TYPES.map(t => `
+            <button class="palette-btn-${t.id} flex items-center gap-2 w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs hover:border-emerald-400 hover:bg-emerald-50 text-left" data-type="${t.id}">
+              <i data-lucide="${t.icon}" class="h-3.5 w-3.5"></i>
+              <span class="truncate">${t.label}</span>
+              <i data-lucide="plus" class="h-3 w-3 ml-auto text-gray-400"></i>
+            </button>
+          `).join('')}
+        </div>
+        <div class="border-t border-gray-200 mt-3 pt-3">
+          <p class="text-[10px] text-gray-500 leading-relaxed">Klik untuk menambah node ke canvas. Tarik dari titik di sisi node untuk menghubungkan.</p>
+        </div>
+      </div>
+    </div>
+    <div id="drawflow-container" class="absolute top-12 left-48 right-80 bottom-0">
+      <div id="drawflow" class="h-full w-full"></div>
+    </div>
+    <div class="absolute top-12 right-0 bottom-0 z-10 w-80 bg-white border-l border-gray-200 overflow-y-auto" id="node-detail-panel">
+      <div class="p-4">
+        <p class="text-xs text-gray-500 text-center mt-8">Pilih node untuk melihat detail, atau tambah node baru dari panel kiri.</p>
+      </div>
+    </div>
+  `;
+  refreshIcons();
+
+  // Init Drawflow
+  const el = $('#drawflow');
+  State.editor = new Drawflow(el);
+  State.editor.reroute = true;
+  State.editor.reroute_fix_curvature = true;
+  State.editor.force_first_input = false;
+  State.editor.start();
+
+  // Autosave saat canvas berubah (skip selama proses load awal)
+  State.editor.on('nodeMoved', () => { if (!State.canvasLoading) setCanvasDirty(); });
+  State.editor.on('connectionCreated', () => { if (!State.canvasLoading) setCanvasDirty(); });
+  State.editor.on('connectionRemoved', () => { if (!State.canvasLoading) setCanvasDirty(); });
+  State.editor.on('nodeRemoved', () => { if (!State.canvasLoading) setCanvasDirty(); });
+
+  // Palette buttons
+  $$('[class*="palette-btn-"]', container).forEach(btn => {
+    btn.addEventListener('click', () => addNode(btn.dataset.type));
+  });
+
+  // Save button
+  $('#save-canvas-btn').addEventListener('click', () => saveCanvas());
+  $('#canvas-search').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    $$('.drawflow-node', el).forEach(node => {
+      const title = (node.querySelector('.node-title')?.textContent || '').toLowerCase();
+      node.style.outline = q && title.includes(q) ? '2px solid #10b981' : '';
+    });
+  });
+
+  // Load canvas data
+  const res = await callServer('getWorkflowCanvas', wfId);
+  if (!res.success) {
+    container.innerHTML = `<div class="p-6 text-red-600">${escapeHtml(res.message || 'Gagal memuat canvas')}</div>`;
+    return;
+  }
+  State.canvasVersion = res.data.version;
+  State.canvasLoading = true;
+  // Render nodes + bangun pemetaan custom node id -> drawflow internal id
+  const nodeIdMap = {};
+  res.data.nodes.forEach(n => {
+    nodeIdMap[n.id] = addNodeToCanvas(n, false);
+  });
+  // Render edges
+  res.data.edges.forEach(e => {
+    try {
+      const fromId = nodeIdMap[e.source];
+      const toId = nodeIdMap[e.target];
+      if (fromId != null && toId != null) {
+        State.editor.addConnection(fromId, toId, e.sourceOutput || 'output_1', e.targetInput || 'input_1');
+      }
+    } catch (err) {
+      // drawflow internal - skip
+    }
+  });
+  // Set viewport — penting: sinkronkan this.zoom dengan transform CSS,
+  // agar garis koneksi (updateConnectionNodes) presisi menempel di port.
+  if (res.data.canvasSettings) {
+    try {
+      const cs = typeof res.data.canvasSettings === 'string'
+        ? JSON.parse(res.data.canvasSettings)
+        : res.data.canvasSettings;
+      const zoom = Number(cs.zoom) || 1;
+      const x = Number(cs.x) || 0;
+      const y = Number(cs.y) || 0;
+      State.editor.zoom = zoom;
+      State.editor.zoom_last_value = zoom;
+      State.editor.canvas_x = x;
+      State.editor.canvas_y = y;
+      if (State.editor.precanvas) {
+        State.editor.precanvas.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + zoom + ')';
+      }
+    } catch (e) {}
+  }
+  State.canvasLoading = false;
+}
+
+function addNodeToCanvas(n, isNew = true) {
+  // Drawflow API: editor.addNode(name, in_num, out_num, pos_x, pos_y, className, data, html)
+  const html = `
+    <div class="drawflow-node-custom type-${escapeHtml(n.nodeType)}">
+      <div class="node-meta">${escapeHtml(n.nodeType.replace('_', ' '))}</div>
+      <div class="node-title">${escapeHtml(n.title || 'Untitled')}</div>
+      ${n.description ? `<div class="node-desc">${escapeHtml(n.description)}</div>` : ''}
+      ${n.task ? `
+        <div class="node-task">
+          <span class="badge badge-${escapeHtml(n.task.status)}">${escapeHtml(STATUS_LABEL[n.task.status])}</span>
+          <span class="badge badge-${escapeHtml(n.task.priority)}">${escapeHtml(PRIORITY_LABEL[n.task.priority])}</span>
+          ${n.task.progress > 0 ? `<span class="text-[10px] text-gray-500">${n.task.progress}%</span>` : ''}
+          <button class="open-task-${escapeHtml(n.task.id)} h-5 w-5 rounded-full bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700" data-task-id="${escapeHtml(n.task.id)}" title="Buka detail task">
+            <i data-lucide="list-todo" class="h-3 w-3"></i>
+          </button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  // Setiap node punya 2 input (kiri & atas) + 2 output (kanan & bawah)
+  // agar edge bisa ditarik dari/ke keempat sisi node.
+  const inputs = 2, outputs = 2;
+  const nodeId = State.editor.addNode(n.nodeType, inputs, outputs, Number(n.positionX) || 100, Number(n.positionY) || 100, 'type-' + n.nodeType, { id: n.id, nodeType: n.nodeType, title: n.title, description: n.description, task: n.task }, html);
+  // Update node id map - we use drawflow internal id
+  State.editor.drawflow.drawflow.Home.data[nodeId].custom_id = n.id;
+  // Attach handler for task button
+  setTimeout(() => {
+    refreshIcons();
+    const taskBtn = $(`.open-task-${n.task ? CSS.escape(n.task.id) : 'xxx'}`);
+    if (taskBtn) taskBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openTaskDrawer(taskBtn.dataset.taskId);
+    });
+  }, 10);
+  return nodeId;
+}
+
+function addNode(nodeType) {
+  const titles = { start_end: 'Mulai', process: 'Proses Baru', task: 'Task Baru', decision: 'Keputusan?', application: 'Aplikasi', note: 'Catatan Baru' };
+  const n = {
+    id: 'tmp_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+    nodeType: nodeType,
+    title: titles[nodeType] || 'Node Baru',
+    description: '',
+    positionX: 100 + Math.random() * 200,
+    positionY: 100 + Math.random() * 100,
+    task: null,
+  };
+  addNodeToCanvas(n);
+  setCanvasDirty();
+  toast(`Node ${nodeType} ditambahkan`, 'info');
+}
+
+function setCanvasDirty() {
+  State.canvasDirty = true;
+  const ind = $('#save-indicator');
+  if (ind) {
+    ind.className = 'inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700';
+    ind.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Belum tersimpan';
+  }
+  // Schedule autosave
+  if (window._canvasSaveTimer) clearTimeout(window._canvasSaveTimer);
+  window._canvasSaveTimer = setTimeout(() => saveCanvas(), 3000);
+}
+
+async function saveCanvas() {
+  if (!State.editor || !State.currentWorkflowId) return;
+  const btn = $('#save-canvas-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div>Menyimpan...'; }
+  const ind = $('#save-indicator');
+  if (ind) {
+    ind.className = 'inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    ind.innerHTML = '<div class="spinner"></div>Menyimpan...';
+  }
+
+  // Collect nodes & edges from Drawflow
+  const exportData = State.editor.export();
+  const nodesArr = [];
+  const edgesArr = [];
+  const homeData = exportData.drawflow.Home.data;
+  for (const drawflowId in homeData) {
+    const node = homeData[drawflowId];
+    const customId = node.data.id || ('tmp_' + drawflowId);
+    nodesArr.push({
+      id: customId,
+      nodeType: node.data.nodeType,
+      title: node.data.title,
+      description: node.data.description || '',
+      positionX: Math.round(node.pos_x),
+      positionY: Math.round(node.pos_y),
+      width: 180,
+      height: 80,
+      taskId: node.data.task ? node.data.task.id : null,
+    });
+    // Edges
+    if (node.outputs) {
+      for (const outKey in node.outputs) {
+        for (const conn of node.outputs[outKey].connections) {
+          const targetNode = homeData[conn.node];
+          if (targetNode) {
+            edgesArr.push({
+              id: 'edge_' + drawflowId + '_' + outKey + '_' + conn.node,
+              source: customId,
+              target: targetNode.data.id || ('tmp_' + conn.node),
+              sourceOutput: outKey || 'output_1',
+              // Catatan: pada data output Drawflow, field `output` menyimpan kelas input target.
+              targetInput: conn.output || 'input_1',
+              label: '',
+              condition: '',
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const payload = {
+    workflowId: State.currentWorkflowId,
+    nodes: nodesArr,
+    edges: edgesArr,
+    canvasSettings: JSON.stringify({ zoom: State.editor.zoom || 0.85, x: State.editor.canvas_x, y: State.editor.canvas_y }),
+    expectedVersion: State.canvasVersion,
+  };
+
+  const res = await callServer('saveCanvasLayout', payload);
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan'; refreshIcons(); }
+  if (res.success) {
+    State.canvasDirty = false;
+    if (res.data && res.data.version) State.canvasVersion = res.data.version;
+    if (ind) {
+      ind.className = 'inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+      ind.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Tersimpan';
+    }
+  } else if (res.errorCode === 'VERSION_CONFLICT') {
+    toast('Konflik versi', 'error', 'Memuat ulang...');
+    setTimeout(() => setView({ kind: 'canvas', workflowId: State.currentWorkflowId, workflowName: State.currentWorkflowName }), 1500);
+  } else {
+    toast(res.message || 'Gagal menyimpan', 'error');
+    if (ind) {
+      ind.className = 'inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700';
+      ind.innerHTML = '<span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>Gagal';
+    }
+  }
+}
+
+/* ============================================================
+ * Kanban View (native drag & drop)
+ * ============================================================ */
+
+async function renderKanban(container) {
+  container.className = 'h-full flex flex-col overflow-hidden';
+  container.innerHTML = `
+    <div class="px-4 py-3 border-b border-gray-200 bg-white flex items-center gap-2 flex-wrap">
+      <div class="relative flex-1 max-w-sm">
+        <i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"></i>
+        <input id="kanban-search" class="pl-8 h-9 w-full text-sm border border-gray-200 rounded-md" placeholder="Cari judul task...">
+      </div>
+      <select id="kanban-wf" class="form-select h-9 w-48"><option value="">Semua workflow</option></select>
+      <select id="kanban-pic" class="form-select h-9 w-44"><option value="">Semua PIC</option></select>
+      <select id="kanban-prio" class="form-select h-9 w-36">
+        <option value="">Semua priority</option>
+        ${PRIORITIES.map(p => `<option value="${p.id}">${p.label}</option>`).join('')}
+      </select>
+      <div class="flex-1"></div>
+      <span id="kanban-count" class="text-xs text-gray-500"></span>
+    </div>
+    <div class="flex-1 overflow-x-auto overflow-y-hidden p-4" id="kanban-board">
+      <div class="flex gap-3 h-full min-w-max items-stretch">
+        ${STATUSES.map(col => `
+          <div class="kanban-col" data-status="${col.id}">
+            <div class="flex items-center justify-between mb-2 px-1">
+              <div class="flex items-center gap-2"><span class="text-sm font-semibold">${col.label}</span><span class="col-count-${col.id} text-[10px] bg-gray-100 px-1.5 py-0.5 rounded">0</span></div>
+            </div>
+            <div class="kanban-col-body" data-status="${col.id}">
+              <div class="text-xs text-gray-400 text-center py-8">Tarik kartu ke sini</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  refreshIcons();
+
+  // Populate filters
+  if (State.init) {
+    const wfSel = $('#kanban-wf');
+    State.init.members.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.email; opt.textContent = m.displayName;
+      $('#kanban-pic').appendChild(opt);
+    });
+    // Load workflow options
+    callServer('listWorkflows').then(res => {
+      if (res.success) res.data.forEach(w => {
+        const opt = document.createElement('option');
+        opt.value = w.id; opt.textContent = w.name;
+        wfSel.appendChild(opt);
+      });
+    });
+  }
+
+  // Filter listeners
+  $('#kanban-search').addEventListener('input', (e) => { State.kanbanFilters.q = e.target.value; loadKanbanTasks(); });
+  $('#kanban-wf').addEventListener('change', (e) => { State.kanbanFilters.workflowId = e.target.value; loadKanbanTasks(); });
+  $('#kanban-pic').addEventListener('change', (e) => { State.kanbanFilters.assigneeEmail = e.target.value; loadKanbanTasks(); });
+  $('#kanban-prio').addEventListener('change', (e) => { State.kanbanFilters.priority = e.target.value; loadKanbanTasks(); });
+
+  await loadKanbanTasks();
+}
+
+async function loadKanbanTasks() {
+  const filters = State.kanbanFilters || {};
+  const res = await callServer('listTasks', filters);
+  if (!res.success) return;
+  const tasks = res.data;
+  const memberMap = {};
+  if (State.init && State.init.members) State.init.members.forEach(m => memberMap[m.email] = m.displayName);
+
+  STATUSES.forEach(col => {
+    const colTasks = tasks.filter(t => t.status === col.id);
+    const body = $(`.kanban-col-body[data-status="${col.id}"]`);
+    const count = $(`.col-count-${col.id}`);
+    if (count) count.textContent = colTasks.length;
+    if (colTasks.length === 0) {
+      body.innerHTML = '<div class="text-xs text-gray-400 text-center py-8">Tarik kartu ke sini</div>';
+    } else {
+      body.innerHTML = colTasks.map(t => {
+        const memberName = (t.assigneeEmail && memberMap[t.assigneeEmail]) || 'Unassigned';
+        const initials = memberName.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+        const overdue = isOverdue(t.dueDate, t.status);
+        return `
+          <div class="kanban-card" draggable="true" data-task-id="${escapeHtml(t.id)}" data-status="${escapeHtml(t.status)}" data-version="${t.version}">
+            <div class="flex items-start">
+              <div class="px-1.5 py-2 text-gray-400 cursor-grab"><i data-lucide="grip-vertical" class="h-3.5 w-3.5"></i></div>
+              <div class="flex-1 text-left p-2 pl-0 min-w-0">
+                <div class="flex items-start justify-between gap-2 mb-1">
+                  <span class="priority-dot ${escapeHtml(t.priority)}"></span>
+                </div>
+                <p class="text-xs font-medium leading-tight line-clamp-2 mb-1">${escapeHtml(t.title)}</p>
+                <span class="badge badge-${escapeHtml(t.priority)}">${escapeHtml(PRIORITY_LABEL[t.priority])}</span>
+                ${t.progress > 0 ? `<div class="mt-1.5"><div class="bg-gray-200 rounded-full h-1"><div class="bg-emerald-500 h-1 rounded-full" style="width:${t.progress}%"></div></div></div>` : ''}
+                <div class="flex items-center justify-between text-[10px] text-gray-500 mt-1.5">
+                  <span class="truncate">${escapeHtml(t.workflowName)}</span>
+                </div>
+                <div class="flex items-center justify-between mt-1.5">
+                  <span class="h-5 w-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[8px] font-semibold">${initials}</span>
+                  <span class="text-[10px] ${overdue ? 'text-red-600 font-medium' : 'text-gray-500'} flex items-center gap-1">
+                    <i data-lucide="${overdue ? 'alert-circle' : 'clock'}" class="h-3 w-3"></i>
+                    ${formatDate(t.dueDate)}
+                  </span>
+                </div>
+                ${t.applications && t.applications.length > 0 ? `<div class="flex items-center gap-1 mt-1.5"><i data-lucide="link-2" class="h-3 w-3 text-gray-400"></i><span class="text-[10px] text-gray-500">${t.applications.length} apps</span></div>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  });
+  refreshIcons();
+  $('#kanban-count').textContent = `${tasks.length} task`;
+
+  // Drag & drop handlers
+  $$('.kanban-card').forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      card.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', JSON.stringify({ taskId: card.dataset.taskId, fromStatus: card.dataset.status, version: parseInt(card.dataset.version, 10) }));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.kanban-card') && !e.target.closest('button')) {
+        openTaskDrawer(card.dataset.taskId);
+      }
+    });
+  });
+
+  $$('.kanban-col-body').forEach(col => {
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drag-over'); });
+    col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const { taskId, fromStatus, version } = data;
+      const targetStatus = col.dataset.status;
+      if (fromStatus === targetStatus) return;
+      // Optimistic: move card to target column
+      const card = $(`.kanban-card[data-task-id="${CSS.escape(taskId)}"]`);
+      if (card) {
+        card.dataset.status = targetStatus;
+        col.appendChild(card);
+      }
+      // Update counts
+      const oldCol = $(`.kanban-col-body[data-status="${CSS.escape(fromStatus)}"]`);
+      if (oldCol) {
+        const oldCount = $(`.col-count-${fromStatus}`);
+        if (oldCount) oldCount.textContent = parseInt(oldCount.textContent, 10) - 1;
+        if (oldCol.children.length === 0 || (oldCol.children.length === 1 && oldCol.querySelector('.text-gray-400'))) {
+          // keep
+        }
+      }
+      const newCount = $(`.col-count-${targetStatus}`);
+      if (newCount) newCount.textContent = parseInt(newCount.textContent, 10) + 1;
+
+      // Save to backend
+      const res = await callServer('updateTaskStatus', { taskId, status: targetStatus, expectedVersion: version });
+      if (res.success) {
+        // Perbarui versi kartu agar drag berikutnya tidak memicu konflik versi.
+        if (card && res.data && res.data.version != null) card.dataset.version = res.data.version;
+        toast(`Dipindahkan ke ${STATUS_LABEL[targetStatus]}`);
+        if (targetStatus === 'done') setTimeout(() => loadKanbanTasks(), 600);
+      } else if (res.errorCode === 'VERSION_CONFLICT') {
+        toast('Konflik versi', 'error', 'Memuat ulang...');
+        setTimeout(() => loadKanbanTasks(), 1500);
+      } else {
+        toast(res.message || 'Gagal memindahkan', 'error');
+        setTimeout(() => loadKanbanTasks(), 600);
+      }
+    });
+  });
+}
+
+/* ============================================================
+ * Applications View
+ * ============================================================ */
+
+async function renderApplications(container) {
+  container.className = 'h-full w-full overflow-auto p-6';
+  container.innerHTML = `
+    <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Application Hub</h1>
+        <p class="text-sm text-gray-500 mt-1">Katalog aplikasi yang dapat ditautkan ke task.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="manage-categories-btn" class="btn btn-secondary"><i data-lucide="settings-2" class="h-4 w-4"></i>Atur Kategori</button>
+        <button id="new-app-btn" class="btn btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Tambah Aplikasi</button>
+      </div>
+    </div>
+    <div id="apps-list"></div>
+  `;
+  refreshIcons();
+  $('#new-app-btn').addEventListener('click', () => showAppDialog());
+  $('#manage-categories-btn').addEventListener('click', () => {
+    State.view = { kind: 'settings' };
+    renderNav();
+    renderView();
+  });
+  await loadCategories();
+  await loadApplicationsList();
+}
+
+/**
+ * Muat daftar kategori aplikasi dari server (di-cache di State.categories).
+ * @param {boolean} force - paksa ambil ulang dari server.
+ */
+async function loadCategories(force = false) {
+  if (!force && State.categories.length > 0) return State.categories;
+  const res = await callServer('listCategories');
+  if (res.success && Array.isArray(res.data)) {
+    State.categories = res.data;
+  }
+  return State.categories;
+}
+
+/** Nama-nama kategori untuk select/grouping (fallback ke konstanta bawaan). */
+function appCategoryNames() {
+  const names = (State.categories || []).map(c => c.name);
+  return names.length > 0 ? names : APP_CATEGORIES.slice();
+}
+
+async function loadApplicationsList() {
+  const list = $('#apps-list');
+  list.innerHTML = '<div class="flex items-center gap-2 text-gray-500"><div class="spinner spinner-dark"></div>Memuat...</div>';
+  await loadCategories();
+  const res = await callServer('listApplications');
+  if (!res.success) { list.innerHTML = `<div class="text-red-600">${escapeHtml(res.message || 'Gagal')}</div>`; return; }
+  const apps = res.data;
+  if (apps.length === 0) {
+    list.innerHTML = `
+      <div class="bg-white border border-gray-200 rounded-lg">
+        <div class="empty-state">
+          <div class="empty-icon"><i data-lucide="app-window" class="h-6 w-6 text-gray-400"></i></div>
+          <h3 class="text-lg font-medium mb-1">Tidak ada aplikasi</h3>
+          <p class="text-sm mb-4">Tambahkan aplikasi pertama Anda.</p>
+        </div>
+      </div>`;
+    refreshIcons();
+    return;
+  }
+  const grouped = {};
+  appCategoryNames().forEach(c => grouped[c] = []);
+  apps.forEach(a => { const c = a.category || 'Other'; if (!grouped[c]) grouped[c] = []; grouped[c].push(a); });
+  list.innerHTML = Object.keys(grouped).filter(c => grouped[c].length > 0).map(cat => `
+    <div class="mb-6">
+      <h2 class="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
+        <span class="badge bg-emerald-100 text-emerald-700">${escapeHtml(cat)}</span>
+        <span class="text-xs">${grouped[cat].length} aplikasi</span>
+      </h2>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        ${grouped[cat].map(a => `
+          <div class="bg-white border border-gray-200 rounded-lg p-4 group hover:shadow-md transition-shadow">
+            <div class="flex items-start justify-between mb-2">
+              <div class="h-10 w-10 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">${escapeHtml(a.name.charAt(0).toUpperCase())}</div>
+              <button class="app-menu-${escapeHtml(a.id)} btn btn-ghost btn-sm" data-app-id="${escapeHtml(a.id)}"><i data-lucide="more-vertical" class="h-3.5 w-3.5"></i></button>
+            </div>
+            <h3 class="text-sm font-medium leading-tight mb-1 line-clamp-1">${escapeHtml(a.name)}</h3>
+            <p class="text-[10px] text-gray-500 line-clamp-2 min-h-[2rem]">${escapeHtml(a.description || 'Tidak ada deskripsi')}</p>
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-500">
+              <span>${a.taskCount} task</span>
+              <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="text-emerald-600 hover:underline flex items-center gap-1">Buka<i data-lucide="external-link" class="h-3 w-3"></i></a>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+  refreshIcons();
+  $$('[class*="app-menu-"]').forEach(btn => btn.addEventListener('click', () => showAppMenu(btn.dataset.appId)));
+}
+
+async function showAppDialog() {
+  await loadCategories();
+  const categoryOptions = appCategoryNames()
+    .map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  const html = `
+    <div class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full" onclick="event.stopPropagation()">
+        <div class="px-5 py-4 border-b border-gray-200"><h3 class="text-base font-semibold">Tambah Aplikasi</h3></div>
+        <div class="p-5 space-y-4">
+          <div><label class="form-label">Nama</label><input type="text" id="app-name" class="form-input" placeholder="Google Workspace"></div>
+          <div><label class="form-label">URL</label><input type="text" id="app-url" class="form-input" placeholder="https://..."></div>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="form-label mb-0">Kategori</label>
+              <button type="button" id="app-manage-cat" class="text-[11px] text-emerald-600 hover:underline">+ Kelola kategori</button>
+            </div>
+            <select id="app-cat" class="form-select">${categoryOptions}</select>
+          </div>
+          <div><label class="form-label">Deskripsi</label><textarea id="app-desc" class="form-textarea" rows="2"></textarea></div>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button class="btn btn-secondary" id="app-cancel">Batal</button>
+          <button class="btn btn-primary" id="app-save">Simpan</button>
+        </div>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div'); wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  $('#app-name').focus();
+  $('#app-manage-cat').addEventListener('click', () => {
+    $('#modal-backdrop').remove();
+    State.view = { kind: 'settings' };
+    renderNav();
+    renderView();
+  });
+  $('#app-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#modal-backdrop').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#app-save').addEventListener('click', async () => {
+    const name = $('#app-name').value.trim();
+    const url = $('#app-url').value.trim();
+    if (!name || !url) { toast('Nama dan URL wajib diisi', 'error'); return; }
+    const res = await callServer('createApplication', { name, url, category: $('#app-cat').value, description: $('#app-desc').value.trim() });
+    if (res.success) { toast('Aplikasi ditambahkan'); $('#modal-backdrop').remove(); loadApplicationsList(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+}
+
+function showAppMenu(appId) {
+  const html = `
+    <div class="fixed inset-0 z-40" id="menu-backdrop">
+      <div class="absolute inset-0" id="menu-bg"></div>
+      <div class="absolute right-4 top-32 bg-white border border-gray-200 rounded-md shadow-lg py-1 w-48">
+        <button class="app-edit-${CSS.escape(appId)} w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2" data-app-id="${appId}"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Edit</button>
+        <button class="app-del-${CSS.escape(appId)} w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2" data-app-id="${appId}"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus</button>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div'); wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  refreshIcons();
+  $('#menu-bg').addEventListener('click', () => $('#menu-backdrop').remove());
+  $(`.app-edit-${CSS.escape(appId)}`).addEventListener('click', async (e) => {
+    $('#menu-backdrop').remove();
+    const list = await callServer('listApplications');
+    const app = list.data.find(a => a.id === e.currentTarget.dataset.appId);
+    if (app) showEditAppDialog(app);
+  });
+  $(`.app-del-${CSS.escape(appId)}`).addEventListener('click', async (e) => {
+    $('#menu-backdrop').remove();
+    if (!confirm('Hapus aplikasi ini?')) return;
+    const res = await callServer('deleteApplication', e.currentTarget.dataset.appId);
+    if (res.success) { toast('Aplikasi dihapus'); loadApplicationsList(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+}
+
+async function showEditAppDialog(app) {
+  await loadCategories();
+  const names = appCategoryNames().slice();
+  if (app.category && names.indexOf(app.category) === -1) names.push(app.category);
+  const categoryOptions = names
+    .map(c => `<option value="${escapeHtml(c)}" ${c === app.category ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  const html = `
+    <div class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full" onclick="event.stopPropagation()">
+        <div class="px-5 py-4 border-b border-gray-200"><h3 class="text-base font-semibold">Edit Aplikasi</h3></div>
+        <div class="p-5 space-y-4">
+          <div><label class="form-label">Nama</label><input type="text" id="app-name" class="form-input" value="${escapeHtml(app.name)}"></div>
+          <div><label class="form-label">URL</label><input type="text" id="app-url" class="form-input" value="${escapeHtml(app.url)}"></div>
+          <div><label class="form-label">Kategori</label><select id="app-cat" class="form-select">${categoryOptions}</select></div>
+          <div><label class="form-label">Deskripsi</label><textarea id="app-desc" class="form-textarea" rows="2">${escapeHtml(app.description || '')}</textarea></div>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button class="btn btn-secondary" id="app-cancel">Batal</button>
+          <button class="btn btn-primary" id="app-save" data-app-id="${app.id}">Simpan</button>
+        </div>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div'); wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  $('#app-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#modal-backdrop').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#app-save').addEventListener('click', async (e) => {
+    const id = e.currentTarget.dataset.appId;
+    const res = await callServer('updateApplication', {
+      id, name: $('#app-name').value.trim(),
+      url: $('#app-url').value.trim(),
+      category: $('#app-cat').value,
+      description: $('#app-desc').value.trim(),
+    });
+    if (res.success) { toast('Aplikasi diperbarui'); $('#modal-backdrop').remove(); loadApplicationsList(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+}
+
+/* ============================================================
+ * Team View
+ * ============================================================ */
+
+async function renderTeam(container) {
+  container.className = 'h-full w-full overflow-auto p-6 space-y-6';
+  container.innerHTML = `
+    <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Team &amp; Members</h1>
+        <p class="text-sm text-gray-500 mt-1">Kelola anggota workspace dan peran mereka.</p>
+      </div>
+      <button id="new-mem-btn" class="btn btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Tambah Member</button>
+    </div>
+    <div id="mem-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    <div id="activity-list" class="bg-white border border-gray-200 rounded-lg p-5"></div>
+  `;
+  refreshIcons();
+  $('#new-mem-btn').addEventListener('click', () => showMemberDialog());
+  await loadMembersList();
+  await loadActivityList();
+}
+
+async function loadMembersList() {
+  const list = $('#mem-list');
+  list.innerHTML = '<div class="col-span-full text-gray-500 flex items-center gap-2"><div class="spinner spinner-dark"></div>Memuat...</div>';
+  const res = await callServer('listMembers');
+  if (!res.success) return;
+  const members = res.data;
+  list.innerHTML = members.map(m => {
+    const initials = m.displayName.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+    const roleBadge = m.role === 'admin' ? 'bg-red-100 text-red-700' : m.role === 'editor' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700';
+    return `
+      <div class="bg-white border border-gray-200 rounded-lg p-5">
+        <div class="flex items-start justify-between mb-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="h-10 w-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm font-semibold">${initials}</span>
+            <div class="min-w-0">
+              <p class="font-medium leading-tight truncate">${escapeHtml(m.displayName)}</p>
+              <p class="text-xs text-gray-500 flex items-center gap-1 truncate"><i data-lucide="mail" class="h-3 w-3"></i>${escapeHtml(m.email)}</p>
+            </div>
+          </div>
+          <span class="badge ${roleBadge} capitalize">${escapeHtml(m.role)}</span>
+        </div>
+      </div>`;
+  }).join('');
+  refreshIcons();
+}
+
+async function loadActivityList() {
+  const list = $('#activity-list');
+  list.innerHTML = '<div class="flex items-center gap-2 text-gray-500"><div class="spinner spinner-dark"></div>Memuat aktivitas...</div>';
+  const res = await callServer('listActivityLogs', { limit: 15 });
+  if (!res.success) return;
+  const logs = res.data;
+  list.innerHTML = `
+    <div class="flex items-center gap-2 mb-3"><i data-lucide="activity" class="h-4 w-4 text-emerald-500"></i><h3 class="text-sm font-medium">Aktivitas Terbaru</h3></div>
+    ${logs.length === 0 ? '<p class="text-sm text-gray-500 text-center py-4">Belum ada aktivitas.</p>' : `
+      <div class="space-y-2 max-h-72 overflow-y-auto">
+        ${logs.map(l => {
+          const actionLabel = { create: 'membuat', update: 'memperbarui', delete: 'menghapus', status_change: 'mengubah status', priority_change: 'mengubah priority', assignee_change: 'mengganti PIC', progress_update: 'memperbarui progress', due_date_change: 'mengubah deadline', archive: 'mengarsipkan', duplicate: 'menduplikasi', canvas_save: 'menyimpan canvas', link_application: 'menautkan aplikasi', unlink_application: 'melepas aplikasi' }[l.action] || l.action;
+          const entityLabel = { task: 'task', workflow: 'workflow', node: 'node', edge: 'edge', application: 'aplikasi', member: 'member' }[l.entityType] || l.entityType;
+          return `
+            <div class="flex items-start gap-3 text-xs">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
+              <div class="flex-1 min-w-0">
+                <p><span class="font-medium">${escapeHtml(l.actorEmail)}</span> <span class="text-gray-500">${actionLabel}</span> <span class="font-medium">${entityLabel}</span>${l.newValue && l.newValue.name ? `: ${escapeHtml(l.newValue.name)}` : l.newValue && l.newValue.title ? `: ${escapeHtml(l.newValue.title)}` : ''}</p>
+                <p class="text-[10px] text-gray-500">${formatDateTime(l.createdAt)}</p>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    `}
+  `;
+  refreshIcons();
+}
+
+function showMemberDialog() {
+  const html = `
+    <div class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+      <div class="bg-white rounded-lg shadow-xl max-w-md w-full" onclick="event.stopPropagation()">
+        <div class="px-5 py-4 border-b border-gray-200"><h3 class="text-base font-semibold">Tambah Member</h3></div>
+        <div class="p-5 space-y-4">
+          <div><label class="form-label">Email</label><input type="email" id="mem-email" class="form-input" placeholder="member@email.com"></div>
+          <div><label class="form-label">Nama Tampilan</label><input type="text" id="mem-name" class="form-input" placeholder="Andi Pratama"></div>
+          <div><label class="form-label">Role</label><select id="mem-role" class="form-select"><option value="admin">Admin</option><option value="editor" selected>Editor</option><option value="viewer">Viewer</option></select></div>
+        </div>
+        <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button class="btn btn-secondary" id="mem-cancel">Batal</button>
+          <button class="btn btn-primary" id="mem-save">Tambah</button>
+        </div>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div'); wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  $('#mem-email').focus();
+  $('#mem-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#modal-backdrop').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#mem-save').addEventListener('click', async () => {
+    const email = $('#mem-email').value.trim();
+    const displayName = $('#mem-name').value.trim();
+    if (!email || !displayName) { toast('Email dan nama wajib diisi', 'error'); return; }
+    const role = $('#mem-role').value;
+    const res = await callServer('addMember', { email, displayName, role });
+    if (res.success) { toast('Member ditambahkan'); $('#modal-backdrop').remove(); loadMembersList(); initApp(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+}
+
+/* ============================================================
+ * Settings View
+ * ============================================================ */
+
+async function renderSettings(container) {
+  container.className = 'h-full w-full overflow-auto p-6 space-y-6 max-w-4xl';
+  const setupRes = await callServer('getSetupStatus');
+  const setup = setupRes.success ? setupRes.data : { setupRequired: true };
+  container.innerHTML = `
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+      <p class="text-sm text-gray-500 mt-1">Konfigurasi workspace dan informasi sistem.</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-5">
+      <h3 class="text-base font-medium flex items-center gap-2 mb-3"><i data-lucide="building-2" class="h-4 w-4 text-emerald-500"></i>Workspace</h3>
+      <div class="grid grid-cols-2 gap-4">
+        <div><label class="form-label">Nama Workspace</label><p class="text-sm font-medium mt-0.5">${State.init && State.init.workspace ? escapeHtml(State.init.workspace.name) : '-'}</p></div>
+        <div><label class="form-label">Owner Email</label><p class="text-sm font-medium mt-0.5">${State.init && State.init.workspace ? escapeHtml(State.init.workspace.ownerEmail) : '-'}</p></div>
+        <div><label class="form-label">Spreadsheet ID</label><p class="text-xs font-mono mt-0.5 text-gray-500 break-all">${escapeHtml(setup.spreadsheetId || '-')}</p></div>
+        <div><label class="form-label">Spreadsheet URL</label>${setup.spreadsheetUrl ? `<a href="${escapeHtml(setup.spreadsheetUrl)}" target="_blank" class="text-xs text-emerald-600 hover:underline mt-0.5 inline-flex items-center gap-1">Buka Spreadsheet<i data-lucide="external-link" class="h-3 w-3"></i></a>` : '<p class="text-xs text-gray-400 mt-0.5">Belum disetup</p>'}</div>
+      </div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-5">
+      <h3 class="text-base font-medium flex items-center gap-2 mb-3"><i data-lucide="user" class="h-4 w-4 text-emerald-500"></i>Pengguna Saat Ini</h3>
+      ${State.init && State.init.currentUser ? `
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="form-label">Nama</label><p class="text-sm font-medium mt-0.5">${escapeHtml(State.init.currentUser.displayName)}</p></div>
+          <div><label class="form-label">Email</label><p class="text-sm font-medium mt-0.5">${escapeHtml(State.init.currentUser.email)}</p></div>
+          <div><label class="form-label">Role</label><p class="mt-0.5"><span class="badge ${State.init.currentUser.role === 'admin' ? 'bg-red-100 text-red-700' : State.init.currentUser.role === 'editor' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'} capitalize">${escapeHtml(State.init.currentUser.role)}</span></p></div>
+        </div>
+      ` : '<p class="text-sm text-gray-500">Tidak ada user terautentikasi.</p>'}
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-5">
+      <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <h3 class="text-base font-medium flex items-center gap-2"><i data-lucide="tags" class="h-4 w-4 text-emerald-500"></i>Kategori Aplikasi</h3>
+        <button id="add-cat-btn" class="btn btn-primary btn-sm"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah Kategori</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-3">Kategori ini dipakai untuk mengelompokkan aplikasi di Application Hub.</p>
+      <div id="cat-list" class="space-y-2">
+        <div class="flex items-center gap-2 text-gray-500 text-sm"><div class="spinner spinner-dark"></div>Memuat...</div>
+      </div>
+      <p class="text-[11px] text-gray-400 mt-3">Mengubah nama kategori ikut memperbarui aplikasi di dalamnya. Menghapus kategori memindahkan aplikasinya ke kategori lain yang tersedia.</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-5">
+      <h3 class="text-base font-medium flex items-center gap-2 mb-3"><i data-lucide="shield" class="h-4 w-4 text-emerald-500"></i>Matriks Hak Akses</h3>
+      <table class="w-full text-xs">
+        <thead><tr class="border-b text-left"><th class="py-2 pr-4 font-medium">Aksi</th><th class="py-2 px-2 font-medium text-center">Admin</th><th class="py-2 px-2 font-medium text-center">Editor</th><th class="py-2 px-2 font-medium text-center">Viewer</th></tr></thead>
+        <tbody>
+          ${[
+            ['Lihat workflow & task', 'Ya', 'Ya', 'Ya'],
+            ['Membuat workflow', 'Ya', 'Ya', 'Tidak'],
+            ['Mengubah canvas', 'Ya', 'Ya', 'Tidak'],
+            ['Membuat/mengubah task', 'Ya', 'Ya', 'Tidak'],
+            ['Mengelola Application Hub', 'Ya', 'Ya', 'Tidak'],
+            ['Mengelola anggota', 'Ya', 'Tidak', 'Tidak'],
+            ['Mengarsipkan/hapus workflow', 'Ya', 'Tidak', 'Tidak'],
+          ].map(row => `
+            <tr class="border-b border-gray-100">
+              <td class="py-2 pr-4">${row[0]}</td>
+              <td class="py-2 px-2 text-center"><span class="badge bg-gray-100 text-gray-700">${row[1]}</span></td>
+              <td class="py-2 px-2 text-center"><span class="badge bg-gray-100 text-gray-700">${row[2]}</span></td>
+              <td class="py-2 px-2 text-center"><span class="badge bg-gray-100 text-gray-700">${row[3]}</span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-5">
+      <h3 class="text-base font-medium flex items-center gap-2 mb-3"><i data-lucide="database" class="h-4 w-4 text-emerald-500"></i>Manajemen Data</h3>
+      <div class="space-y-3">
+        <div class="flex items-center justify-between gap-3 p-3 rounded-md border border-gray-200 bg-gray-50">
+          <div class="flex items-start gap-2 min-w-0">
+            <i data-lucide="refresh-cw" class="h-4 w-4 text-emerald-500 mt-0.5 shrink-0"></i>
+            <div class="min-w-0">
+              <p class="text-sm font-medium">Muat Ulang Konteks Workspace</p>
+              <p class="text-xs text-gray-500">Sinkronkan data workspace dari server.</p>
+            </div>
+          </div>
+          <button id="settings-refresh" class="btn btn-secondary btn-sm"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>Refresh</button>
+        </div>
+        <div class="flex items-center justify-between gap-3 p-3 rounded-md border border-gray-200 bg-gray-50">
+          <div class="flex items-start gap-2 min-w-0">
+            <i data-lucide="sparkles" class="h-4 w-4 text-emerald-500 mt-0.5 shrink-0"></i>
+            <div class="min-w-0">
+              <p class="text-sm font-medium">Seed Data Demo</p>
+              <p class="text-xs text-gray-500">Tambahkan workflow, task, dan aplikasi contoh untuk testing.</p>
+            </div>
+          </div>
+          <button id="settings-seed" class="btn btn-secondary btn-sm"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Seed</button>
+        </div>
+        <div class="flex items-center justify-between gap-3 p-3 rounded-md border border-amber-200 bg-amber-50">
+          <div class="flex items-start gap-2 min-w-0">
+            <i data-lucide="alert-triangle" class="h-4 w-4 text-amber-600 mt-0.5 shrink-0"></i>
+            <div class="min-w-0">
+              <p class="text-sm font-medium">Reset Database</p>
+              <p class="text-xs text-gray-500">Hapus SEMUA data demo. Hati-hati!</p>
+            </div>
+          </div>
+          <button id="settings-reset" class="btn btn-danger btn-sm"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Reset</button>
+        </div>
+      </div>
+    </div>
+    <p class="text-center text-xs text-gray-500 pt-4">FlowSpace · MVP · Satu sumber data, banyak tampilan</p>
+  `;
+  refreshIcons();
+  const canManageCats = !!(State.init && State.init.currentUser && State.init.currentUser.role !== 'viewer');
+  if (!canManageCats) $('#add-cat-btn').classList.add('hidden');
+  $('#add-cat-btn').addEventListener('click', () => showCategoryDialog());
+  $('#settings-refresh').addEventListener('click', () => initApp());
+  $('#settings-seed').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (!confirm('Tambah data demo ke workspace?')) return;
+    btn.disabled = true; btn.innerHTML = '<div class="spinner"></div>Loading...';
+    const res = await callServer('seedDemoData');
+    btn.disabled = false; btn.innerHTML = '<i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Seed';
+    refreshIcons();
+    if (res.success) { toast('Demo data dimuat', 'success', 'Refresh untuk melihat'); initApp(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+  $('#settings-reset').addEventListener('click', async (e) => {
+    if (!confirm('HAPUS SEMUA data workspace? Aksi ini tidak bisa dibatalkan!')) return;
+    const res = await callServer('resetDatabase');
+    if (res.success) { toast('Database direset', 'success'); initApp(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+  await loadCategorySettings();
+}
+
+/** Render daftar kategori aplikasi di Settings. */
+async function loadCategorySettings() {
+  const list = $('#cat-list');
+  if (!list) return;
+  const cats = await loadCategories(true);
+  if (!cats || cats.length === 0) {
+    list.innerHTML = '<p class="text-sm text-gray-500">Belum ada kategori. Tambahkan satu untuk mulai mengelompokkan aplikasi.</p>';
+    return;
+  }
+  const canManage = !!(State.init && State.init.currentUser && State.init.currentUser.role !== 'viewer');
+  list.innerHTML = cats.map(c => `
+    <div class="flex items-center justify-between gap-2 p-2 rounded-md border border-gray-200 bg-gray-50">
+      <span class="badge bg-emerald-100 text-emerald-700">${escapeHtml(c.name)}</span>
+      ${canManage ? `
+        <div class="flex items-center gap-1">
+          <button class="cat-edit btn btn-ghost btn-sm" data-cat-id="${escapeHtml(c.id)}" title="Ubah nama"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+          <button class="cat-del btn btn-ghost btn-sm text-red-600" data-cat-id="${escapeHtml(c.id)}" data-cat-name="${escapeHtml(c.name)}" title="Hapus"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+        </div>` : ''}
+    </div>
+  `).join('');
+  refreshIcons();
+  $$('.cat-edit').forEach(btn => btn.addEventListener('click', () => {
+    const cat = State.categories.find(c => String(c.id) === String(btn.dataset.catId));
+    if (cat) showCategoryDialog(cat);
+  }));
+  $$('.cat-del').forEach(btn => btn.addEventListener('click', async () => {
+    const name = btn.dataset.catName;
+    if (!confirm(`Hapus kategori "${name}"? Aplikasi di dalamnya akan dipindahkan ke kategori lain.`)) return;
+    btn.disabled = true;
+    const res = await callServer('deleteCategory', btn.dataset.catId);
+    btn.disabled = false;
+    if (res.success) {
+      toast('Kategori dihapus', 'success', res.data && res.data.movedApps ? `${res.data.movedApps} aplikasi dipindahkan ke ${res.data.fallback}` : '');
+      await loadCategorySettings();
+      if ($('#apps-list')) await loadApplicationsList();
+    } else {
+      toast(res.message || 'Gagal menghapus kategori', 'error');
+    }
+  }));
+}
+
+/** Dialog tambah/edit kategori aplikasi. Tanpa argumen = tambah. */
+function showCategoryDialog(category) {
+  const isEdit = !!category;
+  const html = `
+    <div class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+      <div class="bg-white rounded-lg shadow-xl max-w-sm w-full" onclick="event.stopPropagation()">
+        <div class="px-5 py-4 border-b border-gray-200"><h3 class="text-base font-semibold">${isEdit ? 'Edit Kategori' : 'Tambah Kategori'}</h3></div>
+        <div class="p-5">
+          <label class="form-label">Nama Kategori</label>
+          <input type="text" id="cat-name" class="form-input" placeholder="Contoh: Marketing" value="${isEdit ? escapeHtml(category.name) : ''}">
+          ${isEdit ? '<p class="text-[11px] text-gray-500 mt-2">Aplikasi dengan kategori ini akan ikut diperbarui.</p>' : ''}
+        </div>
+        <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button class="btn btn-secondary" id="cat-cancel">Batal</button>
+          <button class="btn btn-primary" id="cat-save">Simpan</button>
+        </div>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div'); wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+  const input = $('#cat-name');
+  input.focus();
+  input.select();
+  $('#cat-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+  $('#modal-backdrop').addEventListener('click', () => $('#modal-backdrop').remove());
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#cat-save').click(); });
+  $('#cat-save').addEventListener('click', async (e) => {
+    const name = input.value.trim();
+    if (!name) { toast('Nama kategori wajib diisi', 'error'); return; }
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const res = isEdit
+      ? await callServer('updateCategory', { id: category.id, name })
+      : await callServer('createCategory', { name });
+    btn.disabled = false;
+    if (res.success) {
+      toast(isEdit ? 'Kategori diperbarui' : 'Kategori ditambahkan');
+      $('#modal-backdrop').remove();
+      await loadCategorySettings();
+      if ($('#apps-list')) await loadApplicationsList();
+    } else {
+      toast(res.message || 'Gagal menyimpan kategori', 'error');
+    }
+  });
+}
+
+/* ============================================================
+ * Task Detail Drawer
+ * ============================================================ */
+
+async function openTaskDrawer(taskId) {
+  State.taskDrawer.taskId = taskId;
+  const drawer = $('#task-drawer');
+  drawer.classList.remove('hidden');
+  const content = $('#drawer-content');
+  content.innerHTML = '<div class="p-5 flex items-center gap-2 text-gray-500"><div class="spinner spinner-dark"></div>Memuat task...</div>';
+  $('#drawer-backdrop').onclick = () => closeTaskDrawer();
+  const res = await callServer('getTask', taskId);
+  if (!res.success) {
+    content.innerHTML = `<div class="p-5 text-red-600">${escapeHtml(res.message || 'Gagal')}</div>`;
+    return;
+  }
+  const t = res.data;
+  const memberMap = {};
+  if (State.init && State.init.members) State.init.members.forEach(m => memberMap[m.email] = m.displayName);
+  const completed = t.checklist.filter(c => c.isCompleted).length;
+  content.innerHTML = `
+    <div class="p-5 border-b border-gray-200">
+      <div class="flex items-start justify-between mb-2">
+        <span class="text-xs text-gray-500">${escapeHtml(t.workflowName)}</span>
+        <button id="drawer-close" class="btn btn-ghost btn-sm"><i data-lucide="x" class="h-4 w-4"></i></button>
+      </div>
+      <input type="text" id="task-title" class="w-full text-base font-semibold border-0 px-0 focus:outline-none" value="${escapeHtml(t.title)}">
+      <div class="flex items-center gap-2 flex-wrap mt-2">
+        <span class="badge badge-${escapeHtml(t.status)}">${escapeHtml(STATUS_LABEL[t.status])}</span>
+        <span class="badge badge-${escapeHtml(t.priority)}">${escapeHtml(PRIORITY_LABEL[t.priority])}</span>
+        ${t.dueDate ? `<span class="badge bg-gray-100 text-gray-700 flex items-center gap-1"><i data-lucide="calendar" class="h-2.5 w-2.5"></i>${formatDate(t.dueDate)}</span>` : ''}
+      </div>
+    </div>
+    <div class="p-5 space-y-5">
+      <div>
+        <label class="form-label">Deskripsi</label>
+        <textarea id="task-desc" class="form-textarea" rows="3" placeholder="Tambahkan detail...">${escapeHtml(t.description || '')}</textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label flex items-center gap-1"><i data-lucide="user" class="h-3 w-3"></i>PIC</label>
+          <select id="task-assignee" class="form-select h-9">
+            <option value="">Tidak ada</option>
+            ${(State.init?.members || []).map(m => `<option value="${escapeHtml(m.email)}" ${m.email === t.assigneeEmail ? 'selected' : ''}>${escapeHtml(m.displayName)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="form-label flex items-center gap-1"><i data-lucide="flag" class="h-3 w-3"></i>Priority</label>
+          <select id="task-priority" class="form-select h-9">${PRIORITIES.map(p => `<option value="${p.id}" ${p.id === t.priority ? 'selected' : ''}>${p.label}</option>`).join('')}</select>
+        </div>
+        <div>
+          <label class="form-label">Status</label>
+          <select id="task-status" class="form-select h-9">${STATUSES.map(s => `<option value="${s.id}" ${s.id === t.status ? 'selected' : ''}>${s.label}</option>`).join('')}</select>
+        </div>
+        <div>
+          <label class="form-label">Due Date</label>
+          <input type="date" id="task-due" class="form-input h-9" value="${escapeHtml(t.dueDate || '')}">
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between"><label class="form-label flex items-center gap-1"><i data-lucide="check-square" class="h-3 w-3"></i>Progress</label><span class="text-xs font-medium text-emerald-600" id="task-progress-val">${t.progress}%</span></div>
+        <div class="bg-gray-200 rounded-full h-2 mt-1"><div class="bg-emerald-500 h-2 rounded-full transition-all" id="task-progress-bar" style="width:${t.progress}%"></div></div>
+        <input type="range" id="task-progress" min="0" max="100" step="5" value="${t.progress}" class="w-full mt-2">
+      </div>
+      <hr class="border-gray-200">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="form-label flex items-center gap-1 mb-0"><i data-lucide="check-square" class="h-3 w-3"></i>Checklist (${completed}/${t.checklist.length})</label>
+        </div>
+        <div id="checklist-container" class="space-y-1.5">
+          ${t.checklist.map(c => `
+            <div class="flex items-start gap-2 group" data-item-id="${escapeHtml(c.id)}">
+              <input type="checkbox" ${c.isCompleted ? 'checked' : ''} class="mt-0.5 checklist-item-${escapeHtml(c.id)}" data-item-id="${escapeHtml(c.id)}" data-completed="${c.isCompleted}">
+              <span class="text-xs flex-1 ${c.isCompleted ? 'line-through text-gray-400' : ''}">${escapeHtml(c.title)}</span>
+              <button class="del-item-${escapeHtml(c.id)} opacity-0 group-hover:opacity-100 btn btn-ghost btn-sm" data-item-id="${escapeHtml(c.id)}"><i data-lucide="x" class="h-3 w-3"></i></button>
+            </div>
+          `).join('')}
+        </div>
+        <div class="flex gap-2 mt-2">
+          <input type="text" id="new-checklist-input" class="form-input h-8 text-xs" placeholder="Tambah item...">
+          <button id="add-checklist" class="btn btn-secondary btn-sm"><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>
+      <hr class="border-gray-200">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="form-label flex items-center gap-1 mb-0"><i data-lucide="link-2" class="h-3 w-3"></i>Aplikasi Terkait</label>
+          <button id="link-app-btn" class="btn btn-ghost btn-sm text-xs"><i data-lucide="plus" class="h-3 w-3"></i>Tambah</button>
+        </div>
+        <div id="apps-container" class="space-y-1.5">
+          ${t.applications.length === 0 ? '<p class="text-xs text-gray-500">Belum ada aplikasi terkait.</p>' :
+            t.applications.map(a => `
+              <div class="flex items-center gap-2 p-2 rounded-md border border-gray-200 bg-gray-50 group" data-task-app-id="${escapeHtml(a.taskAppId)}">
+                <div class="h-7 w-7 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-semibold">${escapeHtml(a.name.charAt(0).toUpperCase())}</div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-xs font-medium truncate">${escapeHtml(a.name)}</p>
+                  ${a.linkLabel ? `<p class="text-[10px] text-gray-500 truncate">${escapeHtml(a.linkLabel)}</p>` : ''}
+                </div>
+                <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="text-emerald-600 hover:bg-emerald-50 h-7 w-7 flex items-center justify-center rounded-md"><i data-lucide="external-link" class="h-3.5 w-3.5"></i></a>
+                <button class="unlink-app-${escapeHtml(a.taskAppId)} opacity-0 group-hover:opacity-100 btn btn-ghost btn-sm" data-task-app-id="${escapeHtml(a.taskAppId)}"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </div>
+            `).join('')}
+        </div>
+      </div>
+      <hr class="border-gray-200">
+      <div id="task-activity"></div>
+    </div>
+    <div class="p-4 border-t border-gray-200 bg-white sticky bottom-0 flex gap-2">
+      <button id="task-delete" class="btn btn-danger btn-sm mr-auto"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus</button>
+      <button id="task-close-btn" class="btn btn-secondary btn-sm">Tutup</button>
+      <button id="task-save" class="btn btn-primary btn-sm" data-task-id="${escapeHtml(t.id)}" data-version="${t.version}"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
+    </div>
+  `;
+  refreshIcons();
+  $('#drawer-close').addEventListener('click', closeTaskDrawer);
+  $('#task-close-btn').addEventListener('click', closeTaskDrawer);
+  $('#task-progress').addEventListener('input', (e) => {
+    const v = parseInt(e.target.value, 10);
+    $('#task-progress-val').textContent = v + '%';
+    $('#task-progress-bar').style.width = v + '%';
+  });
+
+  // Checklist toggle
+  $$('input[type="checkbox"][data-item-id]', content).forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      const itemId = e.target.dataset.itemId;
+      const isCompleted = e.target.checked;
+      const span = e.target.parentElement.querySelector('span');
+      if (span) span.classList.toggle('line-through', isCompleted);
+      if (span) span.classList.toggle('text-gray-400', isCompleted);
+      await callServer('updateChecklistItem', { id: itemId, isCompleted });
+      // Refresh task progress
+      const newRes = await callServer('getTask', taskId);
+      if (newRes.success) {
+        $('#task-progress-val').textContent = newRes.data.progress + '%';
+        $('#task-progress-bar').style.width = newRes.data.progress + '%';
+        $('#task-progress').value = newRes.data.progress;
+      }
+    });
+  });
+  $$('[class*="del-item-"]', content).forEach(btn => btn.addEventListener('click', async (e) => {
+    const itemId = e.currentTarget.dataset.itemId;
+    await callServer('deleteChecklistItem', { itemId });
+    toast('Item dihapus');
+    openTaskDrawer(taskId);
+  }));
+  $('#add-checklist').addEventListener('click', async () => {
+    const input = $('#new-checklist-input');
+    if (!input.value.trim()) return;
+    await callServer('createChecklistItem', { taskId, title: input.value.trim() });
+    input.value = '';
+    toast('Item ditambahkan');
+    openTaskDrawer(taskId);
+  });
+
+  // Link app
+  $('#link-app-btn').addEventListener('click', () => showLinkAppDialog(taskId));
+  $$('[class*="unlink-app-"]').forEach(btn => btn.addEventListener('click', async (e) => {
+    const taskAppId = e.currentTarget.dataset.taskAppId;
+    await callServer('unlinkApplicationFromTask', taskAppId);
+    toast('Link dihapus');
+    openTaskDrawer(taskId);
+  }));
+
+  // Save task
+  $('#task-save').addEventListener('click', async (e) => {
+    const id = e.currentTarget.dataset.taskId;
+    const expectedVersion = parseInt(e.currentTarget.dataset.version, 10);
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const payload = {
+      id,
+      title: $('#task-title').value,
+      description: $('#task-desc').value,
+      assigneeEmail: $('#task-assignee').value || null,
+      status: $('#task-status').value,
+      priority: $('#task-priority').value,
+      dueDate: $('#task-due').value || null,
+      expectedVersion,
+    };
+    // Jangan timpa progress hasil kalkulasi checklist untuk task mode checklist.
+    if (t.progressMode !== 'checklist') {
+      payload.progress = parseInt($('#task-progress').value, 10);
+    }
+    const res = await callServer('updateTask', payload);
+    btn.disabled = false;
+    if (res.success) toast('Task diperbarui');
+    else if (res.errorCode === 'VERSION_CONFLICT') {
+      toast('Konflik versi', 'error', 'Memuat ulang...');
+      setTimeout(() => openTaskDrawer(taskId), 1500);
+    } else toast(res.message || 'Gagal', 'error');
+  });
+
+  // Delete task
+  $('#task-delete').addEventListener('click', async () => {
+    if (!confirm('Hapus task ini? Node terkait tetap dipertahankan.')) return;
+    const res = await callServer('deleteTask', taskId);
+    if (res.success) { toast('Task dihapus'); closeTaskDrawer(); if (State.view.kind === 'kanban') loadKanbanTasks(); if (State.view.kind === 'dashboard') renderView(); }
+    else toast(res.message || 'Gagal', 'error');
+  });
+
+  // Activity preview
+  loadTaskActivity(taskId, $('#task-activity'));
+}
+
+async function loadTaskActivity(taskId, container) {
+  container.innerHTML = '<div class="flex items-center gap-2 text-gray-500"><div class="spinner spinner-dark"></div>Memuat aktivitas...</div>';
+  const res = await callServer('listActivityLogs', { entityType: 'task', limit: 20 });
+  if (!res.success) { container.innerHTML = ''; return; }
+  const logs = res.data.filter(l => l.entityId === taskId).slice(0, 8);
+  const actionLabel = { create: 'dibuat', status_change: 'status diubah', priority_change: 'priority diubah', assignee_change: 'PIC diganti', progress_update: 'progress diupdate', due_date_change: 'deadline diubah', link_application: 'aplikasi ditautkan', unlink_application: 'aplikasi dilepas', delete: 'dihapus' };
+  container.innerHTML = `
+    <label class="form-label flex items-center gap-1"><i data-lucide="activity" class="h-3 w-3"></i>Riwayat Aktivitas</label>
+    ${logs.length === 0 ? '<p class="text-xs text-gray-500">Belum ada aktivitas.</p>' : `
+      <div class="space-y-2 max-h-40 overflow-y-auto pr-1">
+        ${logs.map(l => `
+          <div class="flex items-start gap-2 text-xs">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
+            <div class="flex-1 min-w-0">
+              <p class="text-gray-500"><span class="font-medium text-gray-900">${escapeHtml(l.actorEmail)}</span> · ${actionLabel[l.action] || l.action}</p>
+              <p class="text-[10px] text-gray-500">${formatDateTime(l.createdAt)}</p>
+            </div>
+          </div>`).join('')}
+      </div>
+    `}
+  `;
+  refreshIcons();
+}
+
+function closeTaskDrawer() {
+  $('#task-drawer').classList.add('hidden');
+  State.taskDrawer.taskId = null;
+}
+
+function showLinkAppDialog(taskId) {
+  callServer('listApplications').then(res => {
+    if (!res.success) return;
+    const apps = res.data;
+    const html = `
+      <div class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" id="modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full" onclick="event.stopPropagation()">
+          <div class="px-5 py-4 border-b border-gray-200"><h3 class="text-base font-semibold">Tautkan Aplikasi</h3></div>
+          <div class="p-5 space-y-4">
+            <div>
+              <label class="form-label">Pilih Aplikasi</label>
+              <select id="link-app-select" class="form-select">${apps.map(a => `<option value="${a.id}">${escapeHtml(a.name)} (${escapeHtml(a.category)})</option>`).join('')}</select>
+            </div>
+            <div>
+              <label class="form-label">Custom URL (opsional)</label>
+              <input type="text" id="link-custom-url" class="form-input" placeholder="https://khusus-untuk-task-ini...">
+            </div>
+            <div>
+              <label class="form-label">Label Link (opsional)</label>
+              <input type="text" id="link-label" class="form-input" placeholder="Contoh: Channel Onboarding">
+            </div>
+          </div>
+          <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+            <button class="btn btn-secondary" id="link-cancel">Batal</button>
+            <button class="btn btn-primary" id="link-save">Tautkan</button>
+          </div>
+        </div>
+      </div>`;
+    const wrap = document.createElement('div'); wrap.innerHTML = html;
+    document.body.appendChild(wrap.firstElementChild);
+    $('#link-cancel').addEventListener('click', () => $('#modal-backdrop').remove());
+    $('#modal-backdrop').addEventListener('click', () => $('#modal-backdrop').remove());
+    $('#link-save').addEventListener('click', async () => {
+      const res = await callServer('linkApplicationToTask', {
+        taskId,
+        appId: $('#link-app-select').value,
+        customUrl: $('#link-custom-url').value || null,
+        linkLabel: $('#link-label').value || null,
+      });
+      if (res.success) { toast('Aplikasi ditautkan'); $('#modal-backdrop').remove(); openTaskDrawer(taskId); }
+      else toast(res.message || 'Gagal', 'error');
+    });
+  });
+}
+
+/* ============================================================
+ * Setup screen (jika database belum di-setup)
+ * ============================================================ */
+
+function renderSetupRequired(container) {
+  container.className = 'h-full w-full flex items-center justify-center p-6';
+  container.innerHTML = `
+    <div class="max-w-md w-full bg-white border border-gray-200 rounded-lg p-6 text-center">
+      <div class="h-12 w-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4"><i data-lucide="database" class="h-6 w-6"></i></div>
+      <h2 class="text-xl font-semibold mb-2">Selamat Datang di FlowSpace</h2>
+      <p class="text-sm text-gray-500 mb-6">Database belum di-setup. Klik tombol di bawah untuk membuat spreadsheet database dan workspace default. Anda akan menjadi admin workspace.</p>
+      <button id="setup-btn" class="btn btn-primary w-full"><i data-lucide="play" class="h-4 w-4"></i>Setup Database</button>
+      <p class="text-xs text-gray-400 mt-4">Setelah setup selesai, refresh halaman untuk mulai menggunakan aplikasi.</p>
+    </div>
+  `;
+  refreshIcons();
+  $('#setup-btn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true; btn.innerHTML = '<div class="spinner"></div>Setup...';
+    const res = await callServer('setupDatabase');
+    btn.disabled = false; btn.innerHTML = '<i data-lucide="play" class="h-4 w-4"></i>Setup Database';
+    refreshIcons();
+    if (res.success) {
+      toast('Setup berhasil!', 'success', 'Memuat ulang...');
+      setTimeout(() => initApp(), 1500);
+    } else {
+      toast(res.message || 'Gagal setup', 'error');
+    }
+  });
+}
+
+/* ============================================================
+ * Initialize app
+ * ============================================================ */
+
+async function initApp() {
+  const res = await callServer('getInitialAppData');
+  if (!res.success) {
+    $('#view-container').innerHTML = `<div class="p-6 text-red-600">Gagal memuat: ${escapeHtml(res.message || 'Unknown')}</div>`;
+    return;
+  }
+  State.init = res.data;
+  if (res.data.setupRequired) {
+    renderNav();
+    renderHeader();
+    renderSetupRequired($('#view-container'));
+    return;
+  }
+  renderNav();
+  renderHeader();
+  renderView();
+}
+
+// Boot
+document.addEventListener('DOMContentLoaded', () => {
+  initApp();
+});
+
+// Handle search box
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'search-input' && e.target.value) {
+    // bisa ditambah: redirect ke kanban dengan filter
+  }
+});
+</script>
+
+
+</body>
+</html>

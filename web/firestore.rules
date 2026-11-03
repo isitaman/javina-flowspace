@@ -1,0 +1,424 @@
+rules_version = '2';
+
+/**
+ * FlowSpace — Firestore security rules.
+ *
+ * Skema (sama persis dengan penyimpanan lokal, tanpa pemetaan field):
+ *
+ *   users/{uid}                         { workspaceId, email }
+ *   invites/{email}                     { email, workspace_id, role, ... }
+ *   workspaces/{ws}                     { workspace_id, workspace_name, owner_email, status }
+ *   workspaces/{ws}/members/{uid}       { member_id (=uid), email, role, member_status }
+ *   workspaces/{ws}/workflows/{id}
+ *   workspaces/{ws}/nodes|edges|tasks|applications|taskApplications|checklist
+ *   workspaces/{ws}/comments/{id}
+ *   workspaces/{ws}/chatMessages/{id}
+ *   workspaces/{ws}/chatReads/{uid}     { member_id (=uid), last_read_at, last_read_message_id }
+ *   workspaces/{ws}/activityLogs/{id}
+ *   workspaces/{ws}/applicationCategories/{id}
+ *
+ * Prinsip:
+ * - Hanya anggota aktif yang bisa membaca data workspace.
+ * - Editor boleh menulis konten; admin mengelola anggota & workflow.
+ * - Role ditegakkan di server, bukan hanya di UI.
+ *
+ * Catatan: aturan "minimal satu admin" tidak bisa diperiksa dengan rules
+ * (butuh query lintas dokumen). Penjagaan itu ada di UI/API.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* --- Helper ------------------------------------------------- */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function memberRef(ws) {
+      return /databases/$(database)/documents/workspaces/$(ws)/members/$(request.auth.uid);
+    }
+
+    function memberExists(ws) {
+      return signedIn() && exists(memberRef(ws));
+    }
+
+    function memberData(ws) {
+      return get(memberRef(ws)).data;
+    }
+
+    function isActive(ws) {
+      return memberExists(ws) && memberData(ws).member_status == 'active';
+    }
+
+    function isAdmin(ws) {
+      return isActive(ws) && memberData(ws).role == 'admin';
+    }
+
+    function isEditor(ws) {
+      return isActive(ws) && (memberData(ws).role == 'admin' || memberData(ws).role == 'editor');
+    }
+
+    function inviteRef(email) {
+      return /databases/$(database)/documents/invites/$(email);
+    }
+
+    function workspaceDoc(ws) {
+      return get(/databases/$(database)/documents/workspaces/$(ws)).data;
+    }
+
+    function validRole(r) {
+      return r in ['admin', 'editor', 'viewer'];
+    }
+
+    /* --- Data task (untuk cek kepemilikan) ---------------------- */
+
+    function taskPath(ws, taskId) {
+      return /databases/$(database)/documents/workspaces/$(ws)/tasks/$(taskId);
+    }
+
+    function taskUnassignedData(t) {
+      return t.get('assignee_uid', '') == '' && t.get('assignee_email', '') == '';
+    }
+
+    function taskPicMatchesData(t) {
+      return (t.get('assignee_uid', '') != '' && t.get('assignee_uid', '') == request.auth.uid)
+        || (t.get('assignee_email', '') != '' && t.get('assignee_email', '').lower() == userEmail());
+    }
+
+    // Admin bebas; editor hanya task miliknya (bukan task tanpa PIC).
+    function canEditTaskDoc(ws, taskId) {
+      let t = get(taskPath(ws, taskId)).data;
+      let role = get(memberRef(ws)).data.role;
+      return role == 'admin'
+        || (role == 'editor' && !taskUnassignedData(t) && taskPicMatchesData(t));
+    }
+
+    // Versi getAfter: melihat task yang dibuat pada batch yang sama
+    // (task + checklist + tautan aplikasi dikirim bersama).
+    function canEditTaskAfter(ws, taskId) {
+      let t = getAfter(taskPath(ws, taskId)).data;
+      let role = getAfter(memberRef(ws)).data.role;
+      return role == 'admin'
+        || (role == 'editor' && !taskUnassignedData(t) && taskPicMatchesData(t));
+    }
+
+    /* --- Profil user: hanya pemiliknya -------------------------- */
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && uid == request.auth.uid;
+    }
+
+    /* --- Undangan ------------------------------------------------
+     * Undangan punya dua dokumen dengan isi sama:
+     *   invites/{email}                  -> dibaca calon anggota (doc ID = email)
+     *   workspaces/{ws}/invites/{email}  -> dibaca admin workspace
+     * Dipisah agar daftar undangan bisa di-query lewat path (aturan
+     * Firestore tidak berperan sebagai filter field).
+     * ------------------------------------------------------------ */
+
+    match /invites/{emailKey} {
+      // Hanya pemilik email yang boleh membuka undangannya.
+      allow get: if signedIn() && emailKey == userEmail();
+      allow list: if false;
+
+      allow create, update: if signedIn()
+        && isAdmin(request.resource.data.workspace_id)
+        && request.resource.data.email == emailKey
+        && validRole(request.resource.data.role);
+
+      // Admin membatalkan; calon anggota menghapus setelah bergabung.
+      allow delete: if signedIn() && (
+        emailKey == userEmail()
+        || isAdmin(resource.data.workspace_id)
+      );
+    }
+
+    match /workspaces/{ws}/invites/{emailKey} {
+      allow read: if isAdmin(ws) || (signedIn() && emailKey == userEmail());
+
+      allow create, update: if isAdmin(ws)
+        && request.resource.data.workspace_id == ws
+        && request.resource.data.email == emailKey
+        && validRole(request.resource.data.role);
+
+      // Admin membatalkan undangan, atau calon anggota membersihkan
+      // salinannya sendiri setelah bergabung.
+      allow delete: if isAdmin(ws) || (signedIn() && emailKey == userEmail());
+    }
+
+    /* --- Workspace ---------------------------------------------- */
+
+    match /workspaces/{ws} {
+      allow read: if isActive(ws);
+
+      // Bootstrap: pengguna yang login boleh membuat workspace miliknya.
+      allow create: if signedIn()
+        && request.resource.data.workspace_id == ws
+        && request.resource.data.owner_email.lower() == userEmail()
+        && request.resource.data.status == 'active';
+
+      allow update, delete: if isAdmin(ws);
+    }
+
+    /* --- Anggota ------------------------------------------------ */
+
+    match /workspaces/{ws}/members/{uid} {
+      allow read: if isActive(ws) || (signedIn() && uid == request.auth.uid);
+
+      // Bergabung lewat undangan, atau bootstrap admin pertama.
+      allow create: if signedIn()
+        && uid == request.auth.uid
+        && request.resource.data.member_id == uid
+        && request.resource.data.email.lower() == userEmail()
+        && request.resource.data.member_status == 'active'
+        && validRole(request.resource.data.role)
+        && (
+          (
+            !memberExists(ws)
+            && workspaceDoc(ws).owner_email.lower() == userEmail()
+            && request.resource.data.role == 'admin'
+          )
+          || (
+            exists(inviteRef(userEmail()))
+            && get(inviteRef(userEmail())).data.workspace_id == ws
+            && get(inviteRef(userEmail())).data.role == request.resource.data.role
+          )
+        );
+
+      // Admin mengubah anggota lain; pengguna hanya boleh mengubah namanya.
+      allow update: if (isAdmin(ws) && uid != request.auth.uid)
+        || (
+          signedIn()
+          && uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['display_name', 'updated_at'])
+        );
+
+      allow delete: if isAdmin(ws) && uid != request.auth.uid;
+    }
+
+    /* --- Workflow ----------------------------------------------- */
+
+    match /workspaces/{ws}/workflows/{workflowId} {
+      allow read: if isActive(ws);
+      allow create, update: if isEditor(ws);
+      allow delete: if isAdmin(ws);
+    }
+
+    /* --- Task: kepemilikan per PIC ------------------------------
+     * - Admin boleh semua.
+     * - Editor hanya task dengan PIC dirinya (uid, atau email sebagai
+     *   fallback untuk data lama).
+     * - Task tanpa PIC: hanya admin; editor mengambilnya lewat "Ambil task"
+     *   (update yang mengisi PIC = dirinya sendiri).
+     * - PIC tidak bisa dipindah ke orang lain oleh editor.
+     * ------------------------------------------------------------ */
+
+    match /workspaces/{ws}/tasks/{taskId} {
+      allow read: if isActive(ws);
+
+      function nextData() { return request.resource.data; }
+      function currData() { return resource.data; }
+      function nextIsMine() {
+        return nextData().get('assignee_uid', '') == request.auth.uid
+          && nextData().get('assignee_email', '').lower() == userEmail();
+      }
+      function nextUnassigned() {
+        return nextData().get('assignee_uid', '') == '' && nextData().get('assignee_email', '') == '';
+      }
+      function picUnchangedOrReleased() {
+        return (
+          nextData().get('assignee_uid', '') == currData().get('assignee_uid', '')
+          && nextData().get('assignee_email', '') == currData().get('assignee_email', '')
+        ) || nextUnassigned();
+      }
+
+      allow create: if isEditor(ws)
+        && nextData().workspace_id == ws
+        && nextData().get('task_id', '') == taskId
+        && (
+          isAdmin(ws)
+          || nextIsMine()
+        );
+
+      allow update: if isEditor(ws)
+        && nextData().get('workspace_id', '') == currData().get('workspace_id', '')
+        && nextData().get('task_id', '') == currData().get('task_id', '')
+        && (
+          isAdmin(ws)
+          || (taskPicMatchesData(currData()) && picUnchangedOrReleased())
+          // Ambil task tanpa PIC.
+          || (taskUnassignedData(currData()) && nextIsMine())
+        );
+
+      allow delete: if isEditor(ws)
+        && (isAdmin(ws) || taskPicMatchesData(currData()));
+    }
+
+    /* --- Checklist per task -------------------------------------
+     * Kepemilikan mengikuti task induknya. Saat task baru dibuat, task,
+     * checklist, dan tautan aplikasi dikirim dalam satu batch sehingga
+     * dokumen task belum ada; untuk kasus itu cukup pembuat aslinya.
+     * ------------------------------------------------------------ */
+
+    match /workspaces/{ws}/checklist/{itemId} {
+      allow read: if isActive(ws);
+
+      allow create: if isEditor(ws)
+        && canEditTaskAfter(ws, request.resource.data.task_id);
+
+      allow update, delete: if isEditor(ws)
+        && canEditTaskDoc(ws, resource.data.task_id);
+    }
+
+    match /workspaces/{ws}/taskApplications/{linkId} {
+      allow read: if isActive(ws);
+
+      allow create: if isEditor(ws)
+        && canEditTaskAfter(ws, request.resource.data.task_id);
+
+      allow update, delete: if isEditor(ws)
+        && canEditTaskDoc(ws, resource.data.task_id);
+    }
+
+    /* --- Komentar (task / node / workflow) ----------------------
+     * Semua anggota aktif boleh menulis, termasuk viewer. Edit/hapus
+     * hanya penulis sendiri; admin boleh memoderasi. Komentar dihapus
+     * secara soft-delete agar riwayat diskusi tidak hilang.
+     * ---------------------------------------------------------- */
+
+    match /workspaces/{ws}/comments/{commentId} {
+      allow read: if isActive(ws);
+
+      function validEntityType(t) {
+        return t in ['task', 'node', 'workflow'];
+      }
+      function validBody(b) {
+        return b is string && b.size() > 0 && b.size() <= 2000;
+      }
+      function isAuthor() {
+        return resource.data.created_by_uid == request.auth.uid;
+      }
+
+      allow create: if isActive(ws)
+        && request.resource.data.workspace_id == ws
+        && request.resource.data.comment_id == commentId
+        && request.resource.data.created_by_uid == request.auth.uid
+        && request.resource.data.created_by_email.lower() == userEmail()
+        && validEntityType(request.resource.data.entity_type)
+        && validBody(request.resource.data.body)
+        && request.resource.data.deleted_at == '';
+
+      allow update: if isActive(ws)
+        && request.resource.data.workspace_id == resource.data.workspace_id
+        && request.resource.data.comment_id == resource.data.comment_id
+        && request.resource.data.entity_type == resource.data.entity_type
+        && request.resource.data.entity_id == resource.data.entity_id
+        && request.resource.data.created_by_uid == resource.data.created_by_uid
+        && (isAdmin(ws) || isAuthor())
+        && validBody(request.resource.data.body);
+
+      allow delete: if isActive(ws) && (isAdmin(ws) || isAuthor());
+    }
+
+    /* --- Chat tim (satu ruang per workspace) -------------------- */
+
+    match /workspaces/{ws}/chatMessages/{messageId} {
+      allow read: if isActive(ws);
+
+      function validBody(b) {
+        return b is string && b.size() <= 2000;
+      }
+      // Lampiran berupa JSON string berisi maksimal 3 referensi
+      // task/workflow ({type, id, title, meta}). Batas 3 dijaga di
+      // UI/API; rules hanya membatasi bentuk & ukurannya.
+      function validAttachments(data) {
+        return data.get('attachments_json', '') is string
+          && data.get('attachments_json', '').size() <= 1500;
+      }
+      function hasContent(data) {
+        return data.get('body', '').size() > 0 || data.get('attachments_json', '').size() > 2;
+      }
+      function isSender() {
+        return resource.data.sender_uid == request.auth.uid;
+      }
+
+      allow create: if isActive(ws)
+        && request.resource.data.workspace_id == ws
+        && request.resource.data.message_id == messageId
+        && request.resource.data.sender_uid == request.auth.uid
+        && request.resource.data.sender_email.lower() == userEmail()
+        && validBody(request.resource.data.body)
+        && validAttachments(request.resource.data)
+        && hasContent(request.resource.data)
+        && request.resource.data.deleted_at == '';
+
+      // Lampiran tidak bisa diubah saat pesan diedit; hanya isi teks.
+      allow update: if isActive(ws)
+        && request.resource.data.workspace_id == resource.data.workspace_id
+        && request.resource.data.message_id == resource.data.message_id
+        && request.resource.data.sender_uid == resource.data.sender_uid
+        && (isAdmin(ws) || isSender())
+        && validBody(request.resource.data.body)
+        && validAttachments(request.resource.data)
+        && hasContent(request.resource.data)
+        && request.resource.data.get('attachments_json', '') == resource.data.get('attachments_json', '');
+
+      allow delete: if isActive(ws) && (isAdmin(ws) || isSender());
+    }
+
+    /* --- Status baca chat (per anggota) -------------------------
+     * Satu dokumen per user berisi penanda "terakhir dibaca" (high
+     * water mark). Hanya pemiliknya yang boleh menulis, sehingga tidak
+     * ada read receipt untuk pesan orang lain. Admin boleh menghapus
+     * saat moderasi/reset.
+     * ---------------------------------------------------------- */
+    match /workspaces/{ws}/chatReads/{uid} {
+      allow read: if isActive(ws);
+
+      function validReadField(v, maxSize) {
+        return v is string && v.size() <= maxSize;
+      }
+
+      allow create, update: if isActive(ws)
+        && request.auth.uid == uid
+        && request.resource.data.workspace_id == ws
+        && request.resource.data.member_id == uid
+        && validReadField(request.resource.data.last_read_at, 40)
+        && validReadField(request.resource.data.last_read_message_id, 120)
+        && validReadField(request.resource.data.updated_at, 40);
+
+      allow delete: if isActive(ws) && (isAdmin(ws) || request.auth.uid == uid);
+    }
+
+    /* --- Konten workspace lain (struktur & katalog) ------------- */
+
+    match /workspaces/{ws}/{collection}/{docId} {
+      allow read: if isActive(ws)
+        && collection in [
+          'nodes', 'edges', 'applications', 'applicationCategories'
+        ];
+      allow write: if isEditor(ws)
+        && collection in [
+          'nodes', 'edges', 'applications', 'applicationCategories'
+        ];
+    }
+
+    /* --- Log aktivitas (tidak bisa diubah) ---------------------- */
+
+    match /workspaces/{ws}/activityLogs/{logId} {
+      allow read: if isActive(ws);
+      allow create: if isEditor(ws);
+      allow update: if false;
+      allow delete: if isAdmin(ws);
+    }
+
+    // Semua path lain ditolak.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

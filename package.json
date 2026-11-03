@@ -1,0 +1,15 @@
+{
+  "name": "flowspace-gas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FlowSpace — workspace management web app (Firebase Hosting + legacy Google Apps Script backend)",
+  "scripts": {
+    "test": "node tests/run.js",
+    "test:e2e": "node tests/run.js",
+    "test:check": "node tests/check-syntax.js",
+    "test:live": "node tests/live-smoke.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}
