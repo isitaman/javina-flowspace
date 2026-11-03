@@ -58,16 +58,62 @@ html, body { font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; }
 /* ============================================================
  * Sidebar navigation
  * ============================================================ */
-.sidebar-label {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #6E8574;
-  padding: 0 10px;
-  margin: 14px 0 6px;
-}
-.nav-btn {
+  .sidebar-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #6E8574;
+    padding: 0 10px;
+    margin: 14px 0 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: opacity .2s ease, padding .2s ease, margin .2s ease;
+  }
+  body.sidebar-collapsed .sidebar-label {
+    opacity: 0;
+    height: 0;
+    margin: 0;
+    padding: 0 10px;
+    pointer-events: none;
+  }
+  body.sidebar-collapsed #sidebar {
+    width: 76px;
+  }
+  body.sidebar-collapsed #sidebar .sidebar-brand-text {
+    display: none;
+  }
+  body.sidebar-collapsed #sidebar-toggle i {
+    transform: rotate(180deg);
+  }
+  body.sidebar-collapsed #sidebar-toggle {
+    margin-left: auto;
+    margin-right: auto;
+  }
+  body.sidebar-collapsed .nav-btn {
+    justify-content: center;
+    padding: 8px 0;
+    gap: 0;
+    position: relative;
+  }
+  body.sidebar-collapsed .nav-btn .nav-label {
+    display: none;
+  }
+  body.sidebar-collapsed .nav-btn #chat-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    margin-left: 0;
+  }
+  body.sidebar-collapsed .sidebar-sync {
+    justify-content: center;
+    padding: 0;
+  }
+  body.sidebar-collapsed .sidebar-sync-text {
+    display: none;
+  }
+  .nav-btn {
   display: flex; align-items: center; gap: 10px; width: 100%;
   border-radius: 9px; padding: 8px 10px;
   font-size: 13px; font-weight: 500;

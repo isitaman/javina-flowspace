@@ -162,7 +162,7 @@ function renderNav() {
     ${NAV_ITEMS.map(item => `
       <button data-view="${item.view.kind}" class="nav-btn ${isActive(item) ? 'active' : ''}">
         <i data-lucide="${item.icon}" class="h-4 w-4 shrink-0"></i>
-        <span class="truncate">${item.label}</span>
+        <span class="truncate nav-label">${item.label}</span>
         ${item.view.kind === 'chat' ? '<span id="chat-nav-badge" class="ml-auto hidden items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-berry text-white text-[10px] font-semibold leading-none" aria-hidden="true">0</span>' : ''}
       </button>
     `).join('')}
@@ -719,15 +719,21 @@ function closeSidebar() {
   if (backdrop) backdrop.classList.add('hidden');
 }
 
-// Wire up hamburger, close, dan backdrop
-document.addEventListener('DOMContentLoaded', () => {
-  const hamburger = $('#hamburger-btn');
-  const close = $('#sidebar-close');
-  const backdrop = $('#sidebar-backdrop');
-  if (hamburger) hamburger.addEventListener('click', openSidebar);
-  if (close) close.addEventListener('click', closeSidebar);
-  if (backdrop) backdrop.addEventListener('click', closeSidebar);
-});
+
+// Wire up hamburger, close, backdrop, dan toggle collapse sidebar
+  document.addEventListener('DOMContentLoaded', () => {
+    const hamburger = document.getElementById('hamburger-btn');
+    const close = document.getElementById('sidebar-close');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    const toggle = document.getElementById('sidebar-toggle');
+    const key = 'flowspace.sidebar.collapsed';
+    function applyCollapsed(v){ if(v){ document.body.classList.add('sidebar-collapsed'); if(toggle){ toggle.setAttribute('title','Perluas sidebar'); toggle.setAttribute('aria-label','Perluas sidebar'); } } else { document.body.classList.remove('sidebar-collapsed'); if(toggle){ toggle.setAttribute('title','Ciutkan sidebar'); toggle.setAttribute('aria-label','Ciutkan sidebar'); } } try{ localStorage.setItem(key, v?'1':'0'); }catch(e){} }
+    try{ if(localStorage.getItem(key)==='1'){ document.body.classList.add('sidebar-collapsed'); if(toggle){ toggle.setAttribute('title','Perluas sidebar'); toggle.setAttribute('aria-label','Perluas sidebar'); } } }catch(e){}
+    if(toggle){ toggle.addEventListener('click', ()=>{ if(document.body.classList.contains('sidebar-collapsed')) applyCollapsed(false); else applyCollapsed(true); }); }
+    if(hamburger) hamburger.addEventListener('click', openSidebar);
+    if(close) close.addEventListener('click', closeSidebar);
+    if(backdrop) backdrop.addEventListener('click', closeSidebar);
+  });
 
 /* Realtime: otomatis refresh view saat ada perubahan dari TAB LAIN.
  * Perubahan dari tab yang sama sudah direfresh oleh handler aksi masing-masing. */
