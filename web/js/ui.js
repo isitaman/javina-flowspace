@@ -1112,6 +1112,7 @@ async function renderCanvas(container) {
           <input type="file" id="drawio-import-input" accept=".drawio,.xml,text/xml" class="hidden">
           <button id="canvas-comments-btn" class="btn btn-secondary btn-sm" title="Diskusi workflow ini" aria-label="Diskusi workflow"><i data-lucide="message-square" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Diskusi</span></button>
           <button id="drawio-import-btn" class="btn btn-secondary btn-sm" title="Impor draw.io" aria-label="Impor draw.io"><i data-lucide="upload" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Impor draw.io</span></button>
+          <button id="clear-canvas-btn" class="btn btn-ghost btn-sm text-berry hover:bg-berry/5" title="Kosongkan canvas" aria-label="Kosongkan canvas"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i><span class="hidden sm:inline">Kosongkan canvas</span></button>
           <button id="save-canvas-btn" class="btn btn-secondary btn-sm"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
         </div>
       </div>
@@ -1176,10 +1177,60 @@ async function renderCanvas(container) {
 
   State.selectedNode = null;
 
+  function captureCanvasSnapshot() {
+    try {
+      if (!State.editor) return null;
+      const exp = State.editor.export();
+      return JSON.parse(JSON.stringify(exp));
+    } catch (e) { return null; }
+  }
+  function pushCanvasUndo() {
+    if (State.canvasLoading || State.canvasUndoBusy) return;
+    const snap = captureCanvasSnapshot();
+    if (!snap) return;
+    State.canvasUndoStack.push(snap);
+    if (State.canvasUndoStack.length > 50) State.canvasUndoStack.shift();
+  }
+  function undoCanvas() {
+    if (State.canvasLoading || State.canvasUndoBusy) return;
+    if (!State.canvasUndoStack.length) { toast('Tidak ada yang bisa di-undo', 'info'); return; }
+    try {
+      State.canvasUndoBusy = true;
+      const prev = State.canvasUndoStack.pop();
+      if (!prev) return;
+      State.canvasLoading = true;
+      State.editor.clearModule('Home');
+      if (prev.drawflow && prev.drawflow.Home) {
+        State.editor.import(prev);
+      }
+      setTimeout(() => {
+        State.canvasLoading = false;
+        State.canvasUndoBusy = false;
+        setCanvasDirty();
+        refreshEdgeLabels();
+        requestAnimationFrame(() => {
+          if (!State.editor || !State.editor.drawflow) return;
+          const data = State.editor.drawflow.drawflow.Home.data;
+          Object.keys(data).forEach(id => {
+            try { State.editor.updateConnectionNodes('node-' + id); } catch(e){}
+          });
+          refreshEdgeLabels();
+        });
+      }, 50);
+    } catch (e) {
+      State.canvasLoading = false;
+      State.canvasUndoBusy = false;
+      toast('Gagal undo', 'error');
+    }
+  }
+
   // Autosave & panel events
-  State.editor.on('nodeMoved', () => { if (!State.canvasLoading) setCanvasDirty(); refreshEdgeLabels(); });
-  State.editor.on('connectionCreated', () => { if (!State.canvasLoading) setCanvasDirty(); refreshEdgeLabels(); });
-  State.editor.on('connectionRemoved', () => { if (!State.canvasLoading) setCanvasDirty(); refreshEdgeLabels(); });
+  pushCanvasUndo();
+  State.editor.on('nodeMoved', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
+  State.editor.on('nodeCreated', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); } });
+  State.editor.on('nodeRemoved', (id) => { if (!State.canvasLoading) { pushCanvasUndo(); if (State.selectedNode && String(State.selectedNode.drawflowId) === String(id)) { State.selectedNode = null; showNodePanelEmpty(); } setCanvasDirty(); } });
+  State.editor.on('connectionCreated', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
+  State.editor.on('connectionRemoved', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
   // Edit edge label on double click
   el.addEventListener('dblclick', (e) => {
     const labelGroup = e.target.closest('.edge-label-group');
@@ -1209,15 +1260,7 @@ async function renderCanvas(container) {
     const conn = path.parentElement;
     // single click focus not required, dblclick to edit
   });
-  State.editor.on('nodeRemoved', (id) => {
-    if (!State.canvasLoading) {
-      if (State.selectedNode && String(State.selectedNode.drawflowId) === String(id)) {
-        State.selectedNode = null;
-        showNodePanelEmpty();
-      }
-      setCanvasDirty();
-    }
-  });
+  // nodeRemoved already handled above with undo
   State.editor.on('nodeSelected', (id) => {
     const data = State.editor.drawflow.drawflow.Home.data[id];
     if (!data) return;
@@ -1231,11 +1274,37 @@ async function renderCanvas(container) {
 
   // Palette buttons
   $$('[class*="palette-btn-"]', container).forEach(btn => {
-    btn.addEventListener('click', () => addNode(btn.dataset.type));
+    btn.addEventListener('click', () => { pushCanvasUndo(); addNode(btn.dataset.type); });
   });
 
   // Save button
   $('#save-canvas-btn').addEventListener('click', () => saveCanvas());
+  const clearCanvasBtn = $('#clear-canvas-btn');
+  if (clearCanvasBtn) {
+    clearCanvasBtn.addEventListener('click', async () => {
+      const ok = await showConfirmDialog({
+        title: 'Kosongkan canvas',
+        message: 'Semua node dan koneksi akan dihapus dari canvas ini. Tindakan ini bisa di-undo dengan Ctrl+Z.',
+        confirmText: 'Kosongkan',
+        cancelText: 'Batal',
+        danger: true,
+      });
+      if (!ok) return;
+      if (!State.editor) return;
+      pushCanvasUndo();
+      State.canvasLoading = true;
+      try {
+        State.editor.clearModule('Home');
+        State.selectedNode = null;
+        showNodePanelEmpty();
+        setCanvasDirty();
+        refreshEdgeLabels();
+        toast('Canvas dikosongkan', 'info');
+      } finally {
+        State.canvasLoading = false;
+      }
+    });
+  }
   $('#canvas-comments-btn').addEventListener('click', () => {
     showCommentsDialog({
       entityType: 'workflow',
@@ -1268,6 +1337,7 @@ async function renderCanvas(container) {
       if (!file) return;
       try {
         const text = await file.text();
+        pushCanvasUndo();
         await importDrawioDiagram(text);
         toast('Diagram draw.io berhasil diimpor', 'success');
       } catch (err) {
@@ -1294,6 +1364,7 @@ async function renderCanvas(container) {
   }
   State.canvasVersion = res.data.version;
   State.canvasLoading = true;
+  State.canvasUndoStack = [];
   const nodeIdMap = {};
   res.data.nodes.forEach(n => {
     nodeIdMap[n.id] = addNodeToCanvas(n);
@@ -1703,6 +1774,23 @@ function addNode(nodeType) {
   setCanvasDirty();
   toast(`Node ${NODE_TYPE_LABEL[nodeType] || nodeType} ditambahkan`, 'info');
 }
+
+// Canvas keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  try {
+    const s = (typeof State !== 'undefined') ? State : null;
+    if (!s || !s.view || s.view.kind !== 'canvas') return;
+    const target = e.target;
+    if (target) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && String(e.key).toLowerCase() === 'z') {
+      e.preventDefault();
+      if (typeof undoCanvas === 'function') undoCanvas();
+    }
+  } catch (ex) {}
+});
 
 function setCanvasDirty() {
   State.canvasDirty = true;
@@ -2673,16 +2761,20 @@ async function loadKanbanTasks() {
  * ============================================================ */
 
 async function renderApplications(container) {
-  container.className = 'h-full w-full overflow-auto p-6';
+  container.className = 'h-full w-full overflow-auto p-4 sm:p-6';
   container.innerHTML = `
-    <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
       <div>
         <h1 class="font-display text-2xl font-semibold tracking-tight">Application Hub</h1>
         <p class="text-sm text-inksoft mt-1">Katalog aplikasi yang dapat ditautkan ke task.</p>
       </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button id="manage-cat-btn" class="btn btn-secondary"><i data-lucide="tags" class="h-4 w-4"></i>Kelola Kategori</button>
-        <button id="new-app-btn" class="btn btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Tambah Aplikasi</button>
+      <div class="flex items-center gap-2 w-full sm:w-auto flex-wrap justify-end">
+        <div class="inline-flex items-center rounded-md border border-line bg-card p-0.5">
+          <button id="apps-view-list" class="h-8 w-8 flex items-center justify-center rounded-sm text-inksoft hover:text-ink" title="Tampilan daftar" aria-label="Tampilan daftar"><i data-lucide="list" class="h-4 w-4"></i></button>
+          <button id="apps-view-grid" class="h-8 w-8 flex items-center justify-center rounded-sm text-inksoft hover:text-ink" title="Tampilan grid" aria-label="Tampilan grid"><i data-lucide="grid-3x3" class="h-4 w-4"></i></button>
+        </div>
+        <button id="manage-cat-btn" class="btn btn-secondary flex-1 sm:flex-none justify-center"><i data-lucide="tags" class="h-4 w-4"></i><span class="hidden sm:inline">Kelola Kategori</span><span class="sm:hidden">Kategori</span></button>
+        <button id="new-app-btn" class="btn btn-primary flex-1 sm:flex-none justify-center"><i data-lucide="plus" class="h-4 w-4"></i><span class="hidden sm:inline">Tambah Aplikasi</span><span class="sm:hidden">Tambah</span></button>
       </div>
     </div>
     <div id="apps-list"></div>
@@ -2690,7 +2782,30 @@ async function renderApplications(container) {
   refreshIcons();
   $('#new-app-btn').addEventListener('click', () => showAppDialog());
   $('#manage-cat-btn').addEventListener('click', () => showManageCategoriesDialog());
-  await loadApplicationsList();
+
+  const key = 'flowspace.apps.view';
+  let view = 'grid';
+  try { const v = localStorage.getItem(key); if (v === 'list' || v === 'grid') view = v; } catch(e){}
+  function applyView(v){
+    view = v;
+    try { localStorage.setItem(key, v); } catch(e){}
+    const listBtn = $('#apps-view-list');
+    const gridBtn = $('#apps-view-grid');
+    if(listBtn){
+      listBtn.classList.toggle('bg-paper', v === 'list');
+      listBtn.classList.toggle('text-ink', v === 'list');
+    }
+    if(gridBtn){
+      gridBtn.classList.toggle('bg-paper', v === 'grid');
+      gridBtn.classList.toggle('text-ink', v === 'grid');
+    }
+    loadApplicationsList();
+  }
+  const listBtn = $('#apps-view-list');
+  const gridBtn = $('#apps-view-grid');
+  if (listBtn) listBtn.addEventListener('click', () => applyView('list'));
+  if (gridBtn) gridBtn.addEventListener('click', () => applyView('grid'));
+  applyView(view);
 }
 
 async function loadApplicationsList() {
@@ -2719,32 +2834,63 @@ async function loadApplicationsList() {
   const grouped = {};
   cats.forEach(c => grouped[c] = []);
   apps.forEach(a => { if (!grouped[a.category]) grouped[a.category] = []; grouped[a.category].push(a); });
-  list.innerHTML = Object.keys(grouped).filter(c => grouped[c].length > 0).map(cat => `
-    <div class="mb-6">
-      <h2 class="text-sm font-medium text-inksoft mb-2 flex items-center gap-2">
-        <span class="badge bg-fernlight/15 text-ferndeep">${escapeHtml(cat)}</span>
-        <span class="text-xs">${grouped[cat].length} aplikasi</span>
-      </h2>
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        ${grouped[cat].map(a => `
-          <div class="bg-card border border-line rounded-xl p-4 group hover:shadow-soft transition-shadow" data-app-card="${escapeHtml(a.id)}">
-            <div class="flex items-start justify-between mb-2">
-              <div class="h-10 w-10 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-xs font-bold">${escapeHtml(a.name.charAt(0).toUpperCase())}</div>
+  const key = 'flowspace.apps.view';
+  let view = 'grid';
+  try { const v = localStorage.getItem(key); if (v === 'list' || v === 'grid') view = v; } catch(e){}
+
+  if (view === 'list') {
+    list.innerHTML = Object.keys(grouped).filter(c => grouped[c].length > 0).map(cat => `
+      <div class="mb-5 sm:mb-6">
+        <h2 class="text-base font-medium text-ink mb-2 flex items-center gap-2">
+          <span>${escapeHtml(cat)}</span>
+          <span class="text-xs text-inksoft font-normal">${grouped[cat].length}</span>
+        </h2>
+        <div class="bg-card border border-line rounded-xl overflow-hidden divide-y divide-line">
+          ${grouped[cat].map(a => `
+            <div class="flex items-center gap-3 p-3 hover:bg-paper/60" data-app-card="${escapeHtml(a.id)}">
+              <div class="h-9 w-9 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-xs font-bold shrink-0">${escapeHtml(a.name.charAt(0).toUpperCase())}</div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <h3 class="text-sm font-medium truncate">${escapeHtml(a.name)}</h3>
+                  <span class="text-[10px] text-inksoft">${a.taskCount} task</span>
+                </div>
+                <p class="text-xs text-inksoft truncate">${escapeHtml(a.description || 'Tanpa deskripsi')}</p>
+              </div>
+              <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm hidden sm:flex"><i data-lucide="external-link" class="h-3.5 w-3.5"></i>Buka</a>
               <button class="app-menu-${escapeHtml(a.id)} btn btn-ghost btn-sm" aria-haspopup="menu" aria-expanded="false" data-app-id="${escapeHtml(a.id)}" data-app-name="${escapeHtml(a.name)}" title="Menu aplikasi"><i data-lucide="more-vertical" class="h-3.5 w-3.5"></i></button>
             </div>
-            <h3 class="text-sm font-medium leading-tight mb-1 line-clamp-1">${escapeHtml(a.name)}</h3>
-            <p class="text-[10px] text-inksoft line-clamp-2 min-h-[2rem]">${escapeHtml(a.description || 'Tidak ada deskripsi')}</p>
-            <div class="flex items-center justify-between mt-2 pt-2 border-t border-line text-[10px] text-inksoft">
-              <span>${a.taskCount} task</span>
-              <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="text-fern hover:underline flex items-center gap-1">Buka<i data-lucide="external-link" class="h-3 w-3"></i></a>
-            </div>
-          </div>
-        `).join('')}
+          `).join('')}
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  } else {
+    list.innerHTML = Object.keys(grouped).filter(c => grouped[c].length > 0).map(cat => `
+      <div class="mb-5 sm:mb-6">
+        <h2 class="text-base font-medium text-ink mb-2 flex items-center gap-2">
+          <span>${escapeHtml(cat)}</span>
+          <span class="text-xs text-inksoft font-normal">${grouped[cat].length}</span>
+        </h2>
+        <div class="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-2 sm:gap-3">
+          ${grouped[cat].map(a => `
+            <div class="bg-card border border-line rounded-lg p-3 flex flex-col items-center text-center gap-2 group hover:border-fern/40 hover:shadow-sm transition-all relative" data-app-card="${escapeHtml(a.id)}">
+              <button class="app-menu-${escapeHtml(a.id)} absolute top-1 right-1 btn btn-ghost btn-xs" aria-haspopup="menu" aria-expanded="false" data-app-id="${escapeHtml(a.id)}" data-app-name="${escapeHtml(a.name)}" title="Menu aplikasi"><i data-lucide="more-vertical" class="h-3.5 w-3.5"></i></button>
+              <div class="h-12 w-12 rounded-lg bg-fernlight/15 text-ferndeep flex items-center justify-center text-base font-bold">${escapeHtml(a.name.charAt(0).toUpperCase())}</div>
+              <div class="w-full min-w-0">
+                <h3 class="text-sm font-medium leading-tight truncate" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</h3>
+                <p class="text-[10px] text-inksoft mt-0.5 line-clamp-2 min-h-[1.8rem]">${escapeHtml(a.description || 'Tanpa deskripsi')}</p>
+              </div>
+              <div class="w-full flex items-center justify-between text-[10px] text-inksoft pt-1.5 border-t border-line">
+                <span>${a.taskCount} task</span>
+                <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="text-fern hover:underline flex items-center gap-1">Buka</a>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+  }
   refreshIcons();
-  $$('[class*="app-menu-"]').forEach(btn => btn.addEventListener('click', () => showAppMenu(btn, btn.dataset.appId, btn.dataset.appName)));
+  $$('[class*="app-menu-"]').forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showAppMenu(btn, btn.dataset.appId, btn.dataset.appName); }));
 }
 
 async function showAppDialog() {

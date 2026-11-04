@@ -14,6 +14,8 @@ const State = {
   canvasLoading: false,
   canvasVersion: 1,
   editor: null, // Drawflow instance
+  canvasUndoStack: [],
+  canvasUndoBusy: false,
   kanbanFilters: {},
   workflowFilters: { q: '', dept: '', category: '' },
   teamFilters: { q: '', role: '', status: '' },
