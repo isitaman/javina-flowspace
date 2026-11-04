@@ -642,8 +642,8 @@ function renderWorkflowRows() {
         <div class="empty-state">
           <div class="empty-icon"><i data-lucide="workflow" class="h-6 w-6 text-inksoft/50"></i></div>
           <h3 class="text-lg font-medium mb-1">Belum ada workflow</h3>
-          <p class="text-sm mb-4">Mulai dengan membuat workflow pertama Anda.</p>
-          <button class="btn btn-primary" id="empty-new-wf"><i data-lucide="plus" class="h-4 w-4"></i>Buat Workflow</button>
+          <p class="text-sm mb-4">Buat workflow pertama untuk mulai memetakan alur kerja tim.</p>
+          <button class="btn btn-primary" id="empty-new-wf"><i data-lucide="plus" class="h-4 w-4"></i>Buat Workflow Pertamamu</button>
         </div>
       </div>
     `;
@@ -694,7 +694,7 @@ function renderWorkflowRows() {
               </div>
               <p class="text-xs text-inksoft truncate mt-0.5">${escapeHtml(w.description || 'Tanpa deskripsi')}</p>
             </button>
-            <button type="button" class="btn btn-ghost btn-sm shrink-0" data-wf-detail data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" title="Lihat detail workflow">
+            <button type="button" class="btn btn-ghost btn-sm shrink-0" data-wf-detail data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" title="Lihat detail workflow (info & aplikasi terkait)">
               <i data-lucide="info" class="h-3.5 w-3.5"></i><span class="hidden lg:inline">Lihat detail</span>
             </button>
             <div class="hidden sm:flex items-center gap-2 w-32 shrink-0">
@@ -706,7 +706,7 @@ function renderWorkflowRows() {
             </span>
             <span class="hidden lg:block text-[11px] text-inksoft w-24 shrink-0 truncate" title="${escapeHtml(formatDate(w.updatedAt))}">${escapeHtml(formatDate(w.updatedAt))}</span>
             <div class="flex items-center gap-0.5 shrink-0">
-              <button class="btn btn-ghost btn-sm h-7 w-7 p-0" data-wf-open data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" title="Buka canvas">
+              <button class="btn btn-ghost btn-sm h-7 w-7 p-0" data-wf-open data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" title="Buka canvas untuk edit alur kerja">
                 <i data-lucide="arrow-up-right" class="h-3.5 w-3.5"></i>
               </button>
               <button class="btn btn-ghost btn-sm h-7 w-7 p-0" data-wf-menu aria-haspopup="menu" aria-expanded="false" data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" data-wf-version="${w.version}" title="Menu workflow">
@@ -1994,7 +1994,7 @@ function workflowAppsSectionHtml(detail, opts) {
         <p class="text-xs font-semibold">Aplikasi terkait</p>
         <span class="text-[10px] text-inksoft">${total} aplikasi</span>
       </div>
-      ${total === 0 ? `<p class="text-[11px] text-inksoft">Belum ada aplikasi yang ditautkan ke workflow ini.</p>` : ''}
+      ${total === 0 ? `<p class="text-[11px] text-inksoft">Belum ada aplikasi yang ditautkan.<br><span class="text-[10px]">Tautkan aplikasi yang sudah ada atau tambahkan yang baru untuk mempermudah akses tim.</span></p>` : ''}
       ${group('Langsung ke workflow', wfLinks.map((l) => workflowAppLinkRow(l, editable)).join(''))}
       ${group('Ke node', nodeLinks.map((l) => workflowAppLinkRow(l, editable)).join(''))}
       ${nodeTaskApps.length ? `
@@ -2377,7 +2377,7 @@ async function showWorkflowDetailModal(workflowId, workflowName, initialDetail) 
   const renderBody = () => {
     const wf = detail.wf || {};
     const depts = (wf.departments || []).map((d) => `<span class="badge badge-dept">${escapeHtml(d)}</span>`).join('');
-    const linkCount = (detail.links || []).length;
+    const linkCount = (detail.links || []).length + wfTaskAppsByNode(wf.nodes).reduce((s, g) => s + g.apps.length, 0);
     bodyEl.innerHTML = `
       <div class="flex flex-wrap items-center gap-1.5">
         <span class="badge bg-paper text-ink">Workflow</span>
@@ -2428,7 +2428,16 @@ function showNodePanelEmpty() {
     showWorkflowDetailPanel(State.currentWorkflowId);
     return;
   }
-  body.innerHTML = `<p class="text-xs text-inksoft text-center mt-8">${NODE_PANEL_EMPTY_HINT}</p>`;
+  body.innerHTML = `
+    <div class="text-center mt-8 px-3">
+      <div class="h-9 w-9 mx-auto rounded-full bg-paper border border-line flex items-center justify-center mb-2">
+        <i data-lucide="mouse-pointer-click" class="h-4 w-4 text-inksoft"></i>
+      </div>
+      <p class="text-xs font-medium">Pilih node untuk melihat detail</p>
+      <p class="text-[11px] text-inksoft mt-1 leading-relaxed">${NODE_PANEL_EMPTY_HINT}</p>
+    </div>
+  `;
+  refreshIcons();
 }
 
 /* Modal konfirmasi buatan sendiri (tanpa confirm() bawaan browser). */

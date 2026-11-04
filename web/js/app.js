@@ -132,6 +132,19 @@ function callServer(fnName, ...args) {
  * Toast notifications
  * ============================================================ */
 
+const FLOW_HINTS_KEY = 'flowspace.hints.v1';
+
+function getHints() {
+  try { return JSON.parse(localStorage.getItem(FLOW_HINTS_KEY) || '{}') || {}; } catch(e) { return {}; }
+}
+function setHint(k, v) {
+  try {
+    const h = getHints();
+    h[k] = v;
+    localStorage.setItem(FLOW_HINTS_KEY, JSON.stringify(h));
+  } catch(e) {}
+}
+
 function toast(message, type = 'success', description = '') {
   const container = $('#toast-container');
   const el = document.createElement('div');
