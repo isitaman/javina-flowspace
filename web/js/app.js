@@ -707,6 +707,11 @@ window.addEventListener('unhandledrejection', (ev) => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  if ('serviceWorker' in navigator) {
+    try {
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    } catch (e) {}
+  }
   boot();
 });
 
@@ -727,6 +732,11 @@ function closeSidebar() {
 
 // Wire up hamburger, close, backdrop, dan toggle collapse sidebar
   document.addEventListener('DOMContentLoaded', () => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      try {
+        setTimeout(function(){ Notification.requestPermission().catch(function(){}); }, 1500);
+      } catch (e) {}
+    }
     const hamburger = document.getElementById('hamburger-btn');
     const close = document.getElementById('sidebar-close');
     const backdrop = document.getElementById('sidebar-backdrop');

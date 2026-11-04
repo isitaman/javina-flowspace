@@ -29,6 +29,8 @@
   var readLoaded = false;
   var readTimer = null;
   var pendingRead = null;
+  var lastSeenMessageId = '';
+  var notifAudio = null;
 
   function state() {
     // `State` dideklarasikan dengan const di app.js, jadi tidak menjadi
@@ -67,6 +69,58 @@
   function ts(value) {
     var n = new Date(value || '').getTime();
     return isNaN(n) ? 0 : n;
+  }
+
+  function playChatSound() {
+    try {
+      if (!notifAudio) {
+        notifAudio = new Audio('/assets/notification.mp3');
+        notifAudio.volume = 0.4;
+      }
+      notifAudio.currentTime = 0;
+      var p = notifAudio.play();
+      if (p && typeof p.catch === 'function') p.catch(function(){});
+    } catch (e) {}
+  }
+
+  function canNotify() {
+    try {
+      if (typeof Notification === 'undefined') return false;
+      if (Notification.permission !== 'granted') return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function showChatNotification(title, body) {
+    if (!canNotify()) return;
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then(function (reg) {
+          reg.showNotification(title || 'Chat Tim', {
+            body: body || '',
+            tag: 'flowspace-chat',
+            icon: '/favicon.svg',
+            badge: '/favicon.svg',
+          });
+        }).catch(function(){ showNativeNotification(title, body); });
+        return;
+      }
+    } catch (e) {}
+    showNativeNotification(title, body);
+  }
+
+  function showNativeNotification(title, body) {
+    try {
+      var n = new Notification(title || 'Chat Tim', {
+        body: body || '',
+        tag: 'flowspace-chat',
+        icon: '/favicon.svg',
+      });
+      n.onclick = function () {
+        try { window.focus(); } catch (e) {}
+        n.close();
+      };
+    } catch (e) {}
   }
   function isDeleted(msg) {
     return !!(msg && (msg.isDeleted || msg.deletedAt));
@@ -139,6 +193,7 @@
     subscribed = true;
     knownIds = {};
     firstLoadDone = false;
+    lastSeenMessageId = '';
     readState = { lastReadAt: '', lastReadMessageId: '' };
     readLoaded = false;
     // Cache localStorage lama tetap dipakai sebagai fallback awal supaya
@@ -277,6 +332,9 @@
       }
       if (preview.length > 90) preview = preview.slice(0, 90) + '…';
       toast(who + ' mengirim pesan', 'info', preview);
+      var docHidden = typeof document !== 'undefined' && document.hidden;
+      playChatSound();
+      showChatNotification('Chat Tim — ' + who, preview || 'Pesan baru');
     }
 
     // Pesan sendiri yang baru terkirim selalu dianggap terbaca supaya

@@ -31,6 +31,9 @@
   var items = [];
   var refreshTimer = null;
   var tickTimer = null;
+  var lastSeenIds = {};
+  var initialized = false;
+  var notifAudio = null;
 
   /* --- Konteks ------------------------------------------------- */
 
@@ -86,6 +89,52 @@
       }
     }
     return e.split('@')[0];
+  }
+
+  function playNotifSound() {
+    try {
+      if (!notifAudio) {
+        notifAudio = new Audio('/assets/notification.mp3');
+        notifAudio.volume = 0.4;
+      }
+      notifAudio.currentTime = 0;
+      var p = notifAudio.play();
+      if (p && typeof p.catch === 'function') p.catch(function(){});
+    } catch (e) {}
+  }
+
+  function canNotify() {
+    try {
+      if (typeof Notification === 'undefined') return false;
+      if (Notification.permission !== 'granted') return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function showWebNotification(title, body) {
+    if (!canNotify()) return;
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then(function (reg) {
+          reg.showNotification(title || 'FlowSpace', {
+            body: body || '',
+            tag: 'flowspace-notif-app',
+            icon: '/favicon.svg',
+            badge: '/favicon.svg',
+          });
+        }).catch(function(){
+          try {
+            var n = new Notification(title || 'FlowSpace', { body: body || '', tag: 'flowspace-notif-app', icon: '/favicon.svg' });
+            n.onclick = function(){ try { window.focus(); } catch(e){} n.close(); };
+          } catch(e){}
+        });
+        return;
+      }
+    } catch (e) {}
+    try {
+      var n2 = new Notification(title || 'FlowSpace', { body: body || '', tag: 'flowspace-notif-app', icon: '/favicon.svg' });
+      n2.onclick = function(){ try { window.focus(); } catch(e){} n2.close(); };
+    } catch (e) {}
   }
 
   function snippet(value, max) {
@@ -686,9 +735,29 @@
   /* --- Siklus hidup -------------------------------------------- */
 
   function refresh() {
+    var prev = items.slice();
     items = buildItems();
     updateBadge();
     if (panelEl) renderPanel();
+
+    if (!initialized) {
+      items.forEach(function (it) { lastSeenIds[it.id] = true; });
+      initialized = true;
+      return;
+    }
+
+    var st = readState();
+    var docHidden = typeof document !== 'undefined' && document.hidden;
+    items.forEach(function (it) {
+      if (lastSeenIds[it.id]) return;
+      lastSeenIds[it.id] = true;
+      if (isUnreadItem(it, st)) {
+        playNotifSound();
+        var title = it.title || 'Notifikasi baru';
+        var body = it.subtitle || it.body || '';
+        showWebNotification(title, body);
+      }
+    });
   }
 
   function scheduleRefresh() {
