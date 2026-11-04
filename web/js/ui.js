@@ -1191,6 +1191,32 @@ async function renderCanvas(container) {
     State.canvasUndoStack.push(snap);
     if (State.canvasUndoStack.length > 50) State.canvasUndoStack.shift();
   }
+  function clearCanvasModule(editor) {
+    if (!editor) return;
+    try {
+      if (typeof editor.clearModule === 'function') {
+        editor.clearModule('Home');
+        return;
+      }
+      if (typeof editor.clear === 'function') {
+        editor.clear();
+        return;
+      }
+      if (editor.drawflow && editor.drawflow.drawflow && editor.drawflow.drawflow.Home) {
+        const data = editor.drawflow.drawflow.Home.data || {};
+        const ids = Object.keys(data);
+        for (let i = ids.length - 1; i >= 0; i--) {
+          try { editor.removeNodeId('node-' + ids[i]); } catch (e) {}
+        }
+        editor.drawflow.drawflow.Home.data = {};
+      }
+      if (editor.precanvas) {
+        editor.precanvas.querySelectorAll('.drawflow-node').forEach((n) => { try { n.remove(); } catch (e) {} });
+        editor.precanvas.querySelectorAll('.connection').forEach((c) => { try { c.remove(); } catch (e) {} });
+      }
+    } catch (e) {}
+  }
+
   function undoCanvas() {
     if (State.canvasLoading || State.canvasUndoBusy) return;
     if (!State.canvasUndoStack.length) { toast('Tidak ada yang bisa di-undo', 'info'); return; }
@@ -1199,9 +1225,9 @@ async function renderCanvas(container) {
       const prev = State.canvasUndoStack.pop();
       if (!prev) return;
       State.canvasLoading = true;
-      State.editor.clearModule('Home');
+      clearCanvasModule(State.editor);
       if (prev.drawflow && prev.drawflow.Home) {
-        State.editor.import(prev);
+        try { State.editor.import(prev); } catch (e) {}
       }
       setTimeout(() => {
         State.canvasLoading = false;
@@ -1210,7 +1236,7 @@ async function renderCanvas(container) {
         refreshEdgeLabels();
         requestAnimationFrame(() => {
           if (!State.editor || !State.editor.drawflow) return;
-          const data = State.editor.drawflow.drawflow.Home.data;
+          const data = State.editor.drawflow.drawflow.Home.data || {};
           Object.keys(data).forEach(id => {
             try { State.editor.updateConnectionNodes('node-' + id); } catch(e){}
           });
@@ -1294,7 +1320,7 @@ async function renderCanvas(container) {
       pushCanvasUndo();
       State.canvasLoading = true;
       try {
-        State.editor.clearModule('Home');
+        clearCanvasModule(State.editor);
         State.selectedNode = null;
         showNodePanelEmpty();
         setCanvasDirty();
