@@ -694,6 +694,9 @@ function renderWorkflowRows() {
               </div>
               <p class="text-xs text-inksoft truncate mt-0.5">${escapeHtml(w.description || 'Tanpa deskripsi')}</p>
             </button>
+            <button type="button" class="btn btn-ghost btn-sm shrink-0" data-wf-detail data-wf-id="${escapeHtml(w.id)}" data-wf-name="${escapeHtml(w.name)}" title="Lihat detail workflow">
+              <i data-lucide="info" class="h-3.5 w-3.5"></i><span class="hidden lg:inline">Lihat detail</span>
+            </button>
             <div class="hidden sm:flex items-center gap-2 w-32 shrink-0">
               <div class="flex-1 bg-line rounded-full h-1"><div class="bg-fern h-1 rounded-full" style="width:${Math.max(0, Math.min(100, Number(w.progress) || 0))}%"></div></div>
               <span class="text-[10px] tabular-nums text-inksoft w-8 text-right">${Number(w.progress) || 0}%</span>
@@ -719,6 +722,12 @@ function renderWorkflowRows() {
 
   $$('[data-wf-open]', list).forEach((btn) => {
     btn.addEventListener('click', () => {
+      setView({ kind: 'canvas', workflowId: btn.dataset.wfId, workflowName: btn.dataset.wfName });
+    });
+  });
+  $$('[data-wf-detail]', list).forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       setView({ kind: 'canvas', workflowId: btn.dataset.wfId, workflowName: btn.dataset.wfName });
     });
   });
@@ -1425,6 +1434,7 @@ async function renderCanvas(container) {
     } catch (e) {}
   }
   State.canvasLoading = false;
+  try { showNodePanelEmpty(); } catch (e) {}
 
   // Fix: garis koneksi
   requestAnimationFrame(() => {
@@ -1914,11 +1924,99 @@ async function saveCanvas() {
 const NODE_PANEL_EMPTY_HINT = 'Pilih node untuk melihat detail, atau tambah node baru dari '
   + '<span class="md:hidden">panel bawah</span><span class="hidden md:inline">panel kiri</span>.';
 
+async function showWorkflowDetailPanel(workflowId) {
+  const panel = $('#node-detail-panel');
+  const body = $('#node-detail-body');
+  if (!panel || !body || !workflowId) return;
+  panel.classList.add('is-open');
+  body.innerHTML = `<div class="text-xs text-inksoft text-center mt-8">Memuat detail workflow...</div>`;
+  try {
+    const res = await callServer('getWorkflowCanvas', workflowId);
+    if (!res.success) {
+      body.innerHTML = `<p class="text-xs text-berry text-center mt-8">${escapeHtml(res.message || 'Gagal memuat detail workflow')}</p>`;
+      return;
+    }
+    const wf = res.data || {};
+    // Collect apps from all nodes' tasks
+    const appsMap = {};
+    (wf.nodes || []).forEach(n => {
+      (n.tasks || []).forEach(t => {
+        (t.applications || []).forEach(a => {
+          const key = String(a.taskAppId || a.id || a.url || a.name);
+          if (!appsMap[key]) appsMap[key] = a;
+        });
+      });
+    });
+    const apps = Object.values(appsMap);
+    body.innerHTML = `
+      <div class="space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold">${escapeHtml(wf.workflowName || '')}</h3>
+          ${wf.description ? `<p class="text-xs text-inksoft mt-1 leading-relaxed">${escapeHtml(wf.description)}</p>` : `<p class="text-xs text-inksoft mt-1">Tanpa deskripsi</p>`}
+        </div>
+        <div class="p-3 rounded-md border border-line bg-paper/50">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-medium">Aplikasi terkait</p>
+            <span class="text-[10px] text-inksoft">${apps.length} aplikasi</span>
+          </div>
+          <p class="text-[10px] text-inksoft mb-2">Dari task di node workflow ini</p>
+          ${apps.length > 0 ? `
+            <div class="space-y-1.5">
+              ${apps.map(a => `
+                <a href="${escapeHtml(a.url || '#')}" target="_blank" rel="noopener" class="flex items-center gap-2 p-1.5 rounded-md border border-line bg-card hover:bg-paper transition-colors group">
+                  <div class="h-6 w-6 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-[10px] font-semibold shrink-0">${escapeHtml((a.name || '?').charAt(0).toUpperCase())}</div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium truncate">${escapeHtml(a.name || '')}</p>
+                    ${a.linkLabel ? `<p class="text-[10px] text-inksoft truncate">${escapeHtml(a.linkLabel)}</p>` : ''}
+                  </div>
+                  <i data-lucide="external-link" class="h-3 w-3 text-inksoft/60 group-hover:text-fern shrink-0"></i>
+                </a>
+              `).join('')}
+            </div>
+          ` : `<p class="text-[11px] text-inksoft">Belum ada aplikasi terkait dari node/task di workflow ini.</p>`}
+        </div>
+        <div class="p-3 rounded-md border border-fernlight/40 bg-fernlight/10">
+          <p class="text-xs font-medium text-ferndeep mb-1">Tautkan aplikasi ke workflow</p>
+          <p class="text-[11px] text-inksoft mb-2">Koneksi bisa ke node atau langsung ke workflow.</p>
+          <button id="wf-link-app" class="btn btn-primary btn-sm w-full justify-start"><i data-lucide="link" class="h-3.5 w-3.5"></i>Tautkan aplikasi dari Application Hub</button>
+          <button id="wf-add-app" class="btn btn-secondary btn-sm w-full justify-start mt-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah aplikasi baru & tautkan</button>
+        </div>
+        <div class="pt-1 border-t border-line">
+          <button id="wf-open-canvas" class="btn btn-secondary w-full justify-start"><i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i>Buka canvas</button>
+        </div>
+      </div>
+    `;
+    refreshIcons();
+    const linkBtn = $('#wf-link-app');
+    if (linkBtn) linkBtn.addEventListener('click', () => {
+      // Try to use existing app linking UI patterns - open task-like app linking or just navigate
+      setView({ kind: 'applications' });
+      toast('Pilih aplikasi di Application Hub untuk ditautkan', 'info');
+    });
+    const addBtn = $('#wf-add-app');
+    if (addBtn) addBtn.addEventListener('click', () => {
+      setView({ kind: 'applications' });
+      toast('Tambahkan aplikasi baru di Application Hub', 'info');
+    });
+    const openCanvasBtn = $('#wf-open-canvas');
+    if (openCanvasBtn) openCanvasBtn.addEventListener('click', () => {
+      setView({ kind: 'canvas', workflowId: wf.workflowId, workflowName: wf.workflowName });
+    });
+  } catch (e) {
+    body.innerHTML = `<p class="text-xs text-berry text-center mt-8">Gagal memuat detail workflow</p>`;
+  }
+}
+
 function showNodePanelEmpty() {
   const panel = $('#node-detail-panel');
-  if (panel) panel.classList.remove('is-open');
   const body = $('#node-detail-body');
-  if (body) body.innerHTML = `<p class="text-xs text-inksoft text-center mt-8">${NODE_PANEL_EMPTY_HINT}</p>`;
+  if (!panel || !body) return;
+  panel.classList.remove('is-open');
+  if (State.view && State.view.kind === 'canvas' && State.currentWorkflowId) {
+    showWorkflowDetailPanel(State.currentWorkflowId);
+    return;
+  }
+  body.innerHTML = `<p class="text-xs text-inksoft text-center mt-8">${NODE_PANEL_EMPTY_HINT}</p>`;
 }
 
 /* Modal konfirmasi buatan sendiri (tanpa confirm() bawaan browser). */
