@@ -506,6 +506,7 @@ perubahan rules atau koleksi baru.
 | Chat listener `permission-denied` saat transisi token | 2x retry dengan refresh token, lalu toast informatif |
 | Peringatan Tailwind Play CDN di production | Hilang (salinan `vendor/tailwind-3.4.16.js` tidak lagi memanggil `console.warn`) |
 | Header `Cross-Origin-Opener-Policy` | Dihapus dari `firebase.json` (default `unsafe-none` paling kompatibel dengan popup) |
+| `popup.ts:302 Cross-Origin-Opener-Policy policy would block the window.closed call` saat login Google | Noise **pihak ketiga** (infrastruktur popup Google / Firebase Auth SDK) — string-nya tidak ada di kode FlowSpace maupun bundle SDK 13.1.0, dan hosting tidak mengirim header COOP/COEP. Login tetap berhasil (kasus dikenal luas: firebase-js-sdk #8295, tim Firebase menunjuk header yang disisipkan middleware/ekstensi). Tidak ditindaklanjuti; bila ingin hilang total → ganti `signInWithPopup` ke `signInWithRedirect` |
 | Console saat smoke lokal & live | 0 error, 0 warning |
 
 ### Uji kategori Application Hub (2 Nov 2026)

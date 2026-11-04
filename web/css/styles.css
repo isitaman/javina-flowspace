@@ -81,13 +81,14 @@ html, body { font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; }
   body.sidebar-collapsed #sidebar {
     width: 76px;
   }
-  body.sidebar-collapsed #sidebar .sidebar-brand-text {
+  body.sidebar-collapsed #sidebar-brand {
     display: none;
   }
-  body.sidebar-collapsed #sidebar-toggle i {
-    transform: rotate(180deg);
-  }
   body.sidebar-collapsed #sidebar-toggle {
+    display: none;
+  }
+  body.sidebar-collapsed #sidebar-expand {
+    display: flex;
     margin-left: auto;
     margin-right: auto;
   }

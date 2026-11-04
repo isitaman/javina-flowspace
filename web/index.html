@@ -70,16 +70,21 @@
 
     <!-- Sidebar -->
     <aside id="sidebar" class="fixed md:static inset-y-0 left-0 z-40 w-[248px] bg-forest text-[#E7EDE6] flex flex-col shrink-0 transform -translate-x-full md:translate-x-0 transition-all duration-300">
-      <div class="flex items-center gap-2.5 h-14 px-4 border-b border-white/10 shrink-0">
-        <div class="h-8 w-8 rounded-lg bg-fernlight/15 text-fernlight flex items-center justify-center shrink-0">
-          <i data-lucide="boxes" class="h-[18px] w-[18px]"></i>
+      <div class="flex items-center gap-2 h-14 px-4 border-b border-white/10 shrink-0">
+        <button id="sidebar-expand" class="hidden h-8 w-8 items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white" title="Luaskan sidebar" aria-label="Luaskan sidebar">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+        <div id="sidebar-brand" class="flex items-center gap-2.5 min-w-0 flex-1">
+          <div class="h-8 w-8 rounded-lg bg-fernlight/15 text-fernlight flex items-center justify-center shrink-0">
+            <i data-lucide="boxes" class="h-[18px] w-[18px]"></i>
+          </div>
+          <div class="flex flex-col min-w-0 leading-tight">
+            <span class="font-display text-[15px] font-semibold tracking-tight text-white">FlowSpace</span>
+            <span id="ws-name" class="text-[10px] font-mono text-white/45 truncate">Loading...</span>
+          </div>
         </div>
-        <div class="flex flex-col min-w-0 leading-tight sidebar-brand-text">
-          <span class="font-display text-[15px] font-semibold tracking-tight text-white">FlowSpace</span>
-          <span id="ws-name" class="text-[10px] font-mono text-white/45 truncate">Loading...</span>
-        </div>
-        <button id="sidebar-toggle" class="hidden md:flex ml-auto h-8 w-8 items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white" title="Ciutkan sidebar" aria-label="Ciutkan sidebar">
-          <i data-lucide="panel-left-close" class="h-4 w-4"></i>
+        <button id="sidebar-toggle" class="hidden md:flex h-8 w-8 items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white" title="Ciutkan sidebar" aria-label="Ciutkan sidebar">
+          <i data-lucide="chevron-left" class="h-4 w-4"></i>
         </button>
         <button id="sidebar-close" class="md:hidden ml-auto h-8 w-8 flex items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white">
           <i data-lucide="x" class="h-4 w-4"></i>

@@ -59,6 +59,34 @@
   function normalizeCategory(input) {
     return String(input || '').trim().slice(0, 48);
   }
+
+  // Tautan aplikasi ke workflow / node disimpan sebagai JSON di dokumen
+  // workflow (kolom `app_links_json`). Tidak ada koleksi baru, jadi kuota
+  // dan aturan Firestore yang sudah ada tetap dipakai.
+  // Bentuk tiap entri:
+  //   { id, app_id, custom_url, link_label, target_type, target_node_id,
+  //     created_by, created_at }
+  function parseWorkflowAppLinks(raw) {
+    if (!raw) return [];
+    try {
+      var arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(function (l) {
+        return l && l.app_id;
+      }).map(function (l) {
+        return {
+          id: String(l.id || ''),
+          app_id: String(l.app_id),
+          custom_url: String(l.custom_url || ''),
+          link_label: String(l.link_label || ''),
+          target_type: l.target_type === 'node' ? 'node' : 'workflow',
+          target_node_id: String(l.target_node_id || ''),
+          created_by: String(l.created_by || ''),
+          created_at: String(l.created_at || ''),
+        };
+      });
+    } catch (e) { return []; }
+  }
   function isValidUrl(u) {
     if (!u || typeof u !== 'string') return false;
     try { var x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:'; }
@@ -827,10 +855,20 @@
         };
       });
 
+      var wfTaskCount = 0;
+      var wfProgressSum = 0;
+      Store.findBy('tasks', 'workspace_id', ws.workspace_id).forEach(function (t) {
+        if (String(t.workflow_id) !== String(w.workflow_id)) return;
+        wfTaskCount++;
+        wfProgressSum += Number(t.progress) || 0;
+      });
       return apiSuccess({
         workflowId: w.workflow_id, workflowName: w.workflow_name, description: w.description,
+        category: w.category || '', departments: parseDepartments(w.departments_json),
         version: Number(w.version) || 1, canvasSettings: w.canvas_settings_json,
         nodes: nodesPayload, edges: edgesPayload,
+        taskCount: wfTaskCount,
+        progress: wfTaskCount > 0 ? Math.round(wfProgressSum / wfTaskCount) : 0,
         commentCount: commentCount('workflow', w.workflow_id),
       });
     },
@@ -1589,6 +1627,147 @@
       Store.remove('taskApplications', 'task_app_id', taskAppId);
       Audit.log({ entity_type: 'task', entity_id: ta.task_id, action: 'unlink_application', old_value_json: JSON.stringify({ appId: ta.app_id }) });
       return apiSuccess(null, 'Link dihapus');
+    },
+
+    /* --- Aplikasi pada workflow & node --------------------------
+     * Satu aplikasi bisa ditautkan langsung ke workflow, atau ke node
+     * tertentu di dalam workflow. Keduanya disimpan di kolom JSON
+     * `app_links_json` pada dokumen workflow.
+     * ---------------------------------------------------------- */
+    getWorkflowAppLinks: function (workflowId) {
+      var ws = currentWorkspace();
+      var w = Store.findById('workflows', 'workflow_id', workflowId);
+      if (!w || String(w.workspace_id) !== String(ws.workspace_id)) {
+        return apiError('Workflow tidak ditemukan', 'NOT_FOUND');
+      }
+      var nodes = {};
+      Store.findBy('nodes', 'workflow_id', workflowId).forEach(function (n) {
+        nodes[String(n.node_id)] = n;
+      });
+      var apps = {};
+      Store.findBy('applications', 'workspace_id', ws.workspace_id).forEach(function (a) {
+        apps[String(a.app_id)] = a;
+      });
+      var result = parseWorkflowAppLinks(w.app_links_json).map(function (l) {
+        var app = apps[String(l.app_id)] || null;
+        var node = l.target_type === 'node' ? (nodes[String(l.target_node_id)] || null) : null;
+        return {
+          id: l.id,
+          appId: l.app_id,
+          name: app ? app.app_name : '(Aplikasi dihapus)',
+          url: l.custom_url || (app ? app.app_url : ''),
+          category: app ? (app.category || '') : '',
+          iconUrl: app ? (app.icon_url || '') : '',
+          linkLabel: l.link_label,
+          customUrl: l.custom_url,
+          targetType: l.target_type,
+          targetNodeId: l.target_node_id,
+          targetNodeTitle: node ? node.title : '',
+          missing: !app,
+          createdBy: l.created_by,
+          createdAt: l.created_at,
+        };
+      });
+      return apiSuccess(result);
+    },
+
+    linkApplicationToWorkflow: function (payload) {
+      requireEditor();
+      var ws = currentWorkspace();
+      var w = Store.findById('workflows', 'workflow_id', payload.workflowId);
+      if (!w || String(w.workspace_id) !== String(ws.workspace_id)) {
+        return apiError('Workflow tidak ditemukan', 'NOT_FOUND');
+      }
+      if (!payload.appId) return apiError('Aplikasi wajib dipilih', 'VALIDATION');
+      var app = Store.findById('applications', 'app_id', payload.appId);
+      if (!app || String(app.workspace_id) !== String(ws.workspace_id)) {
+        return apiError('Aplikasi tidak ditemukan', 'NOT_FOUND');
+      }
+      if (payload.customUrl && !isValidUrl(payload.customUrl)) {
+        return apiError('Custom URL tidak valid (hanya http/https)', 'VALIDATION');
+      }
+      var targetType = payload.targetType === 'node' ? 'node' : 'workflow';
+      var targetNodeId = '';
+      if (targetType === 'node') {
+        targetNodeId = String(payload.targetNodeId || '');
+        if (!targetNodeId) return apiError('Pilih node tujuan', 'VALIDATION');
+        var node = Store.findById('nodes', 'node_id', targetNodeId);
+        if (!node || String(node.workflow_id) !== String(payload.workflowId)) {
+          return apiError('Node tidak ditemukan di workflow ini', 'NOT_FOUND');
+        }
+      }
+      var links = parseWorkflowAppLinks(w.app_links_json);
+      var duplicate = links.some(function (l) {
+        return String(l.app_id) === String(payload.appId)
+          && l.target_type === targetType
+          && String(l.target_node_id || '') === targetNodeId;
+      });
+      if (duplicate) return apiError('Aplikasi ini sudah ditautkan ke target tersebut', 'DUPLICATE');
+      var now = Store.nowIso();
+      var link = {
+        id: Store.generateId('wfa'),
+        app_id: String(payload.appId),
+        custom_url: String(payload.customUrl || ''),
+        link_label: String(payload.linkLabel || ''),
+        target_type: targetType,
+        target_node_id: targetNodeId,
+        created_by: currentEmail(),
+        created_at: now,
+      };
+      links.push(link);
+      Store.update('workflows', 'workflow_id', payload.workflowId, {
+        app_links_json: JSON.stringify(links),
+        updated_at: now,
+        version: (Number(w.version) || 1) + 1,
+      });
+      Audit.log({
+        entity_type: 'workflow', entity_id: payload.workflowId, action: 'link_application',
+        new_value_json: JSON.stringify({ appId: app.app_id, name: app.app_name, target: targetType, nodeId: targetNodeId }),
+      });
+      return apiSuccess({ id: link.id }, 'Aplikasi ditautkan');
+    },
+
+    // Daftarkan URL baru ke Application Hub bila belum ada, lalu tautkan.
+    linkNewApplicationToWorkflow: function (payload) {
+      requireEditor();
+      if (!payload.workflowId || !payload.name || !payload.url) {
+        return apiError('Workflow, nama, dan URL aplikasi wajib diisi', 'VALIDATION');
+      }
+      if (!isValidUrl(payload.url)) return apiError('URL tidak valid (hanya http/https)', 'VALIDATION');
+      var app = ensureApplicationFromLink({
+        name: payload.name, url: payload.url, category: payload.category,
+      });
+      var res = Api.linkApplicationToWorkflow({
+        workflowId: payload.workflowId,
+        appId: app.app_id,
+        targetType: payload.targetType,
+        targetNodeId: payload.targetNodeId,
+        linkLabel: payload.linkLabel,
+      });
+      if (!res.success) return res;
+      return apiSuccess({ id: res.data.id, appId: app.app_id }, 'Aplikasi ditambahkan & ditautkan');
+    },
+
+    unlinkWorkflowAppLink: function (payload) {
+      requireEditor();
+      var ws = currentWorkspace();
+      var w = Store.findById('workflows', 'workflow_id', payload.workflowId);
+      if (!w || String(w.workspace_id) !== String(ws.workspace_id)) {
+        return apiError('Workflow tidak ditemukan', 'NOT_FOUND');
+      }
+      var links = parseWorkflowAppLinks(w.app_links_json);
+      var next = links.filter(function (l) { return String(l.id) !== String(payload.linkId); });
+      if (next.length === links.length) return apiError('Tautan aplikasi tidak ditemukan', 'NOT_FOUND');
+      Store.update('workflows', 'workflow_id', payload.workflowId, {
+        app_links_json: JSON.stringify(next),
+        updated_at: Store.nowIso(),
+        version: (Number(w.version) || 1) + 1,
+      });
+      Audit.log({
+        entity_type: 'workflow', entity_id: payload.workflowId, action: 'unlink_application',
+        old_value_json: JSON.stringify({ linkId: payload.linkId }),
+      });
+      return apiSuccess(null, 'Tautan aplikasi dilepas');
     },
 
     /* --- Checklist ---------------------------------------------- */

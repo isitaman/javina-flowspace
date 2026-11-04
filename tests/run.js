@@ -26,6 +26,7 @@ const SUITES = [
   ['smoke (app shell + modal kategori)', 'smoke.js'],
   ['phase1 (backup & diagnostik)', 'phase1-test.js'],
   ['phase2 (global search / Ctrl+K)', 'phase2-test.js'],
+  ['workflow-detail (modal detail + tautan aplikasi)', 'workflow-detail-test.js'],
 ];
 
 if (process.env.FLOWSPACE_SHOTS === '1') {

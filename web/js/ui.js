@@ -728,7 +728,7 @@ function renderWorkflowRows() {
   $$('[data-wf-detail]', list).forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      setView({ kind: 'canvas', workflowId: btn.dataset.wfId, workflowName: btn.dataset.wfName });
+      showWorkflowDetailModal(btn.dataset.wfId, btn.dataset.wfName);
     });
   });
   $$('[data-wf-menu]', list).forEach((btn) => {
@@ -1924,87 +1924,499 @@ async function saveCanvas() {
 const NODE_PANEL_EMPTY_HINT = 'Pilih node untuk melihat detail, atau tambah node baru dari '
   + '<span class="md:hidden">panel bawah</span><span class="hidden md:inline">panel kiri</span>.';
 
+/* --- Detail workflow: panel kanan + modal -------------------- */
+
+const WF_PREVIEW_COLORS = {
+  start_end: '#2F7D5B', process: '#4B6B8A', task: '#8A6D3B',
+  decision: '#A15C3E', application: '#5A4B8A', note: '#7A7A6A', workflow_link: '#3E7C7C',
+};
+
+function wfAppTargetLabel(link) {
+  if (link && link.targetType === 'node') {
+    return link.targetNodeTitle ? 'Node · ' + link.targetNodeTitle : 'Node';
+  }
+  return 'Workflow';
+}
+
+// Aplikasi yang menempel lewat task di tiap node (data lama / dari task).
+function wfTaskAppsByNode(nodes) {
+  return (nodes || []).map((n) => {
+    const seen = {};
+    const apps = [];
+    (n.tasks || []).forEach((t) => {
+      (t.applications || []).forEach((a) => {
+        const key = String(a.taskAppId || a.id || a.url || a.name);
+        if (seen[key]) return;
+        seen[key] = true;
+        apps.push(a);
+      });
+    });
+    return { nodeId: n.id, nodeTitle: n.title || 'Tanpa judul', apps };
+  }).filter((x) => x.apps.length > 0);
+}
+
+function workflowAppLinkRow(link, editable) {
+  const isNode = link.targetType === 'node';
+  const initial = String(link.name || '?').charAt(0).toUpperCase();
+  return `
+    <div class="flex items-center gap-2 rounded-lg border border-line bg-card px-2 py-1.5">
+      <div class="h-7 w-7 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-[11px] font-semibold shrink-0">${escapeHtml(initial)}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <a href="${escapeHtml(link.url || '#')}" target="_blank" rel="noopener" class="text-xs font-medium truncate hover:text-fern ${link.missing ? 'pointer-events-none line-through text-inksoft' : ''}">${escapeHtml(link.name || 'Aplikasi')}</a>
+          <span class="badge ${isNode ? 'badge-dept' : 'badge-cat'} shrink-0" title="Jenis koneksi">${escapeHtml(wfAppTargetLabel(link))}</span>
+        </div>
+        ${link.linkLabel ? `<p class="text-[10px] text-inksoft truncate">${escapeHtml(link.linkLabel)}</p>` : ''}
+      </div>
+      ${editable ? `<button type="button" class="btn btn-ghost btn-sm h-6 w-6 p-0 text-berry hover:bg-berry/10 shrink-0" data-wf-app-unlink="${escapeHtml(link.id || '')}" title="Lepas tautan aplikasi" aria-label="Lepas tautan aplikasi"><i data-lucide="unlink" class="h-3 w-3"></i></button>` : ''}
+    </div>
+  `;
+}
+
+function workflowAppsSectionHtml(detail, opts) {
+  opts = opts || {};
+  const editable = opts.editable !== false;
+  const links = detail.links || [];
+  const wfLinks = links.filter((l) => l.targetType !== 'node');
+  const nodeLinks = links.filter((l) => l.targetType === 'node');
+  const nodeTaskApps = wfTaskAppsByNode(detail.wf && detail.wf.nodes);
+  const total = links.length + nodeTaskApps.reduce((sum, g) => sum + g.apps.length, 0);
+
+  const group = (title, rowsHtml) => rowsHtml ? `
+    <div class="space-y-1.5">
+      <p class="text-[10px] font-semibold uppercase tracking-wide text-inksoft">${escapeHtml(title)}</p>
+      ${rowsHtml}
+    </div>` : '';
+
+  return `
+    <div class="rounded-lg border border-line bg-paper/40 p-3 space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-xs font-semibold">Aplikasi terkait</p>
+        <span class="text-[10px] text-inksoft">${total} aplikasi</span>
+      </div>
+      ${total === 0 ? `<p class="text-[11px] text-inksoft">Belum ada aplikasi yang ditautkan ke workflow ini.</p>` : ''}
+      ${group('Langsung ke workflow', wfLinks.map((l) => workflowAppLinkRow(l, editable)).join(''))}
+      ${group('Ke node', nodeLinks.map((l) => workflowAppLinkRow(l, editable)).join(''))}
+      ${nodeTaskApps.length ? `
+        <div class="space-y-1.5">
+          <p class="text-[10px] font-semibold uppercase tracking-wide text-inksoft">Dari task di node</p>
+          ${nodeTaskApps.map((g) => `
+            <div class="space-y-1">
+              <p class="text-[10px] text-inksoft truncate">${escapeHtml(g.nodeTitle)}</p>
+              ${g.apps.map((a) => workflowAppLinkRow({ name: a.name, url: a.url, linkLabel: a.linkLabel, targetType: 'node', targetNodeTitle: g.nodeTitle }, false)).join('')}
+            </div>
+          `).join('')}
+        </div>` : ''}
+      ${editable ? `
+        <div class="flex flex-col gap-1.5 pt-1">
+          <button type="button" class="btn btn-primary btn-sm w-full justify-start" data-wf-app-link-existing><i data-lucide="link" class="h-3.5 w-3.5"></i>Tautkan aplikasi yang sudah ada</button>
+          <button type="button" class="btn btn-secondary btn-sm w-full justify-start" data-wf-app-link-new><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah aplikasi baru & tautkan</button>
+        </div>` : ''}
+    </div>
+  `;
+}
+
+// Pratinjau diagram sederhana (SVG) dari data node & edge canvas.
+function workflowMiniDiagramSvg(nodes, edges) {
+  const list = nodes || [];
+  if (list.length === 0) {
+    return `<div class="h-[200px] flex flex-col items-center justify-center text-center text-inksoft">
+      <i data-lucide="layout-dashboard" class="h-6 w-6 text-inksoft/40"></i>
+      <p class="text-xs mt-1.5">Canvas masih kosong</p>
+    </div>`;
+  }
+  const byId = {};
+  list.forEach((n) => { byId[String(n.id)] = n; });
+  const sizeOf = (n) => ({
+    x: Number(n.positionX) || 0,
+    y: Number(n.positionY) || 0,
+    w: Number(n.width) || 180,
+    h: Number(n.height) || 80,
+  });
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  list.forEach((n) => {
+    const s = sizeOf(n);
+    minX = Math.min(minX, s.x); minY = Math.min(minY, s.y);
+    maxX = Math.max(maxX, s.x + s.w); maxY = Math.max(maxY, s.y + s.h);
+  });
+  const pad = 44;
+  const vbX = minX - pad;
+  const vbY = minY - pad;
+  const vbW = Math.max(260, maxX - minX + pad * 2);
+  const vbH = Math.max(170, maxY - minY + pad * 2);
+
+  const edgeSvg = (edges || []).map((e) => {
+    const a = byId[String(e.source)];
+    const b = byId[String(e.target)];
+    if (!a || !b) return '';
+    const sa = sizeOf(a), sb = sizeOf(b);
+    const ax = sa.x + sa.w / 2, ay = sa.y + sa.h / 2;
+    const bx = sb.x + sb.w / 2, by = sb.y + sb.h / 2;
+    const mx = (ax + bx) / 2;
+    return `<path d="M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}" fill="none" stroke="#B7C3BB" stroke-width="2" marker-end="url(#wf-preview-arrow)"/>`;
+  }).join('');
+
+  const nodeSvg = list.map((n) => {
+    const s = sizeOf(n);
+    const color = WF_PREVIEW_COLORS[n.nodeType] || '#4B6B8A';
+    const title = String(n.title || 'Untitled');
+    const short = title.length > 24 ? title.slice(0, 23) + '…' : title;
+    return `<g>
+      <rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="10" fill="#FFFFFF" stroke="${color}" stroke-width="2"/>
+      <rect x="${s.x}" y="${s.y}" width="6" height="${s.h}" rx="3" fill="${color}"/>
+      <text x="${s.x + 16}" y="${s.y + s.h / 2 + 5}" font-size="13" fill="#24312B" font-family="ui-sans-serif, system-ui, sans-serif">${escapeHtml(short)}</text>
+    </g>`;
+  }).join('');
+
+  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="100%" height="220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Pratinjau diagram workflow">
+    <defs>
+      <marker id="wf-preview-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#B7C3BB"/>
+      </marker>
+    </defs>
+    ${edgeSvg}${nodeSvg}
+  </svg>`;
+}
+
+async function fetchWorkflowDetail(workflowId) {
+  const [canvasRes, linksRes] = await Promise.all([
+    callServer('getWorkflowCanvas', workflowId),
+    callServer('getWorkflowAppLinks', workflowId),
+  ]);
+  if (!canvasRes.success) return { error: canvasRes.message || 'Gagal memuat detail workflow' };
+  return { wf: canvasRes.data || {}, links: linksRes.success ? (linksRes.data || []) : [] };
+}
+
+/* Dialog untuk menautkan aplikasi ke workflow atau node. */
+function openWorkflowAppLinkDialog(options) {
+  options = options || {};
+  const workflowId = options.workflowId;
+  const nodes = options.nodes || [];
+  const onDone = options.onDone;
+  let mode = options.mode === 'new' ? 'new' : 'existing';
+  let apps = [];
+  const previouslyFocused = document.activeElement;
+
+  const targetOptions = `<option value="workflow">Workflow ini (langsung)</option>`
+    + nodes.map((n) => `<option value="node:${escapeHtml(n.id)}">Node · ${escapeHtml(n.title || 'Tanpa judul')}</option>`).join('');
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'fixed inset-0 z-[85] bg-ink/40 flex items-center justify-center p-4';
+  backdrop.innerHTML = `
+    <div class="bg-card rounded-xl shadow-soft max-w-md w-full max-h-[92vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="wf-app-link-title">
+      <div class="px-5 py-3 border-b border-line flex items-center justify-between gap-3 shrink-0">
+        <h3 id="wf-app-link-title" class="text-base font-semibold">Tautkan aplikasi</h3>
+        <button type="button" class="btn btn-ghost btn-sm h-7 w-7 p-0" data-wf-app-cancel aria-label="Tutup"><i data-lucide="x" class="h-4 w-4"></i></button>
+      </div>
+      <div class="p-4 overflow-y-auto space-y-3">
+        <div class="flex rounded-md border border-line p-0.5 bg-paper text-xs">
+          <button type="button" class="flex-1 px-2 py-1.5 rounded" data-wf-app-tab="existing">Aplikasi yang ada</button>
+          <button type="button" class="flex-1 px-2 py-1.5 rounded" data-wf-app-tab="new">Aplikasi baru</button>
+        </div>
+        <div data-wf-app-mode="existing" class="space-y-1.5">
+          <label class="form-label">Pilih aplikasi</label>
+          <select id="wf-app-pick" class="form-select text-sm"><option value="">Memuat aplikasi...</option></select>
+          <p class="text-[10px] text-inksoft">Belum ada aplikasi? Pindah ke tab "Aplikasi baru".</p>
+        </div>
+        <div data-wf-app-mode="new" class="space-y-2">
+          <div><label class="form-label">Nama aplikasi</label><input id="wf-app-name" class="form-input text-sm" placeholder="Contoh: Google Drive"></div>
+          <div><label class="form-label">URL</label><input id="wf-app-url" class="form-input text-sm" placeholder="https://..."></div>
+          <div><label class="form-label">Kategori</label><input id="wf-app-cat" class="form-input text-sm" placeholder="Other"></div>
+        </div>
+        <div>
+          <label class="form-label">Jenis koneksi</label>
+          <select id="wf-app-target" class="form-select text-sm">${targetOptions}</select>
+          <p class="text-[10px] text-inksoft mt-1">Pilih "Workflow ini" untuk tautan langsung, atau node tertentu.</p>
+        </div>
+        <div>
+          <label class="form-label">Label tautan <span class="text-inksoft font-normal">(opsional)</span></label>
+          <input id="wf-app-label" class="form-input text-sm" placeholder="Contoh: Template onboarding">
+        </div>
+      </div>
+      <div class="px-5 py-3 border-t border-line flex justify-end gap-2 shrink-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-wf-app-cancel>Batal</button>
+        <button type="button" class="btn btn-primary btn-sm" id="wf-app-submit"><i data-lucide="link" class="h-3.5 w-3.5"></i>Tautkan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  refreshIcons();
+
+  const pickEl = backdrop.querySelector('#wf-app-pick');
+  const submitBtn = backdrop.querySelector('#wf-app-submit');
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKey, true);
+    backdrop.remove();
+    if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus({ preventScroll: true });
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+
+  const renderMode = () => {
+    backdrop.querySelectorAll('[data-wf-app-tab]').forEach((b) => {
+      const active = b.dataset.wfAppTab === mode;
+      b.className = `flex-1 px-2 py-1.5 rounded ${active ? 'bg-ink text-paper font-medium' : 'text-inksoft hover:text-ink'}`;
+    });
+    backdrop.querySelectorAll('[data-wf-app-mode]').forEach((el) => {
+      el.classList.toggle('hidden', el.dataset.wfAppMode !== mode);
+    });
+  };
+  backdrop.querySelectorAll('[data-wf-app-tab]').forEach((b) => {
+    b.addEventListener('click', () => { mode = b.dataset.wfAppTab; renderMode(); });
+  });
+  backdrop.querySelectorAll('[data-wf-app-cancel]').forEach((b) => b.addEventListener('click', close));
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  renderMode();
+
+  (async () => {
+    const res = await callServer('listApplications');
+    apps = res.success ? (res.data || []) : [];
+    if (!pickEl) return;
+    if (apps.length === 0) {
+      pickEl.innerHTML = '<option value="">Belum ada aplikasi di Application Hub</option>';
+      return;
+    }
+    pickEl.innerHTML = '<option value="">— Pilih aplikasi —</option>' + apps.map((a) =>
+      `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}${a.category ? ' · ' + escapeHtml(a.category) : ''}</option>`).join('');
+  })();
+
+  submitBtn.addEventListener('click', async () => {
+    const targetVal = (backdrop.querySelector('#wf-app-target') || {}).value || 'workflow';
+    const targetType = targetVal.indexOf('node:') === 0 ? 'node' : 'workflow';
+    const targetNodeId = targetType === 'node' ? targetVal.slice(5) : '';
+    const labelEl = backdrop.querySelector('#wf-app-label');
+    const linkLabel = labelEl ? labelEl.value.trim() : '';
+
+    submitBtn.disabled = true;
+    let res;
+    if (mode === 'existing') {
+      const appId = pickEl ? pickEl.value : '';
+      if (!appId) {
+        submitBtn.disabled = false;
+        toast('Pilih aplikasi terlebih dahulu', 'error');
+        return;
+      }
+      res = await callServer('linkApplicationToWorkflow', {
+        workflowId, appId, targetType, targetNodeId, linkLabel,
+      });
+    } else {
+      const nameEl = backdrop.querySelector('#wf-app-name');
+      const urlEl = backdrop.querySelector('#wf-app-url');
+      const catEl = backdrop.querySelector('#wf-app-cat');
+      const name = nameEl ? nameEl.value.trim() : '';
+      const url = urlEl ? urlEl.value.trim() : '';
+      const category = catEl ? catEl.value.trim() : '';
+      if (!name || !url) {
+        submitBtn.disabled = false;
+        toast('Nama dan URL aplikasi wajib diisi', 'error');
+        return;
+      }
+      res = await callServer('linkNewApplicationToWorkflow', {
+        workflowId, name, url, category, targetType, targetNodeId, linkLabel,
+      });
+    }
+    submitBtn.disabled = false;
+    if (!res || !res.success) {
+      toast((res && res.message) || 'Gagal menautkan aplikasi', 'error');
+      return;
+    }
+    toast(res.message || 'Aplikasi ditautkan');
+    close();
+    if (typeof onDone === 'function') onDone();
+  });
+}
+
+// Aksi pada bagian aplikasi (dipakai panel kanan dan modal detail).
+function wireWorkflowDetailActions(root, detail, refresh) {
+  if (!root || !detail || !detail.wf) return;
+  const workflowId = detail.wf.workflowId;
+  const nodes = detail.wf.nodes || [];
+
+  root.querySelectorAll('[data-wf-app-link-existing]').forEach((btn) => {
+    btn.addEventListener('click', () => openWorkflowAppLinkDialog({
+      workflowId, nodes, mode: 'existing', onDone: refresh,
+    }));
+  });
+  root.querySelectorAll('[data-wf-app-link-new]').forEach((btn) => {
+    btn.addEventListener('click', () => openWorkflowAppLinkDialog({
+      workflowId, nodes, mode: 'new', onDone: refresh,
+    }));
+  });
+  root.querySelectorAll('[data-wf-app-unlink]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const linkId = btn.dataset.wfAppUnlink;
+      const link = (detail.links || []).find((l) => String(l.id) === String(linkId));
+      const ok = await showConfirmDialog({
+        title: 'Lepas tautan aplikasi?',
+        message: `"${link ? link.name : 'Aplikasi'}" akan dilepas dari ${link ? wfAppTargetLabel(link) : 'workflow'}. Aplikasinya tetap tersimpan di Application Hub.`,
+        confirmText: 'Lepas',
+        cancelText: 'Batal',
+        danger: true,
+      });
+      if (!ok) return;
+      const res = await callServer('unlinkWorkflowAppLink', { workflowId, linkId });
+      if (!res.success) {
+        toast(res.message || 'Gagal melepas tautan', 'error');
+        return;
+      }
+      toast('Tautan aplikasi dilepas');
+      if (typeof refresh === 'function') refresh();
+    });
+  });
+}
+
+let wfPanelDetail = null;
+
+function renderWorkflowDetailPanelContent(detail) {
+  wfPanelDetail = detail;
+  const panel = $('#node-detail-panel');
+  const body = $('#node-detail-body');
+  if (!body) return;
+  if (panel) panel.classList.add('is-open');
+  const wf = detail.wf || {};
+  const depts = (wf.departments || []).map((d) => `<span class="badge badge-dept">${escapeHtml(d)}</span>`).join('');
+  body.innerHTML = `
+    <div class="space-y-4">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="badge bg-paper text-ink">Workflow</span>
+        ${wf.category ? `<span class="badge badge-cat"><i data-lucide="tag" class="h-2.5 w-2.5"></i>${escapeHtml(wf.category)}</span>` : ''}
+        ${depts}
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold">${escapeHtml(wf.workflowName || '')}</h3>
+        <p class="text-xs text-inksoft mt-1 leading-relaxed">${escapeHtml(wf.description || 'Tanpa deskripsi')}</p>
+      </div>
+      <div class="grid grid-cols-3 gap-1.5 text-center">
+        <div class="rounded-md border border-line bg-paper/50 py-1.5"><p class="text-sm font-semibold tabular-nums">${Number(wf.taskCount) || 0}</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Task</p></div>
+        <div class="rounded-md border border-line bg-paper/50 py-1.5"><p class="text-sm font-semibold tabular-nums">${Number(wf.progress) || 0}%</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Progress</p></div>
+        <div class="rounded-md border border-line bg-paper/50 py-1.5"><p class="text-sm font-semibold tabular-nums">${(wf.nodes || []).length}</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Node</p></div>
+      </div>
+      ${workflowAppsSectionHtml(detail, { editable: true })}
+      <button type="button" class="btn btn-secondary w-full justify-start" data-wf-detail-modal><i data-lucide="info" class="h-3.5 w-3.5"></i>Lihat detail lengkap</button>
+    </div>
+  `;
+  refreshIcons();
+  wireWorkflowDetailActions(body, detail, refreshWorkflowPanel);
+  const modalBtn = body.querySelector('[data-wf-detail-modal]');
+  if (modalBtn) {
+    modalBtn.addEventListener('click', () => showWorkflowDetailModal(wf.workflowId, wf.workflowName, detail));
+  }
+}
+
+async function refreshWorkflowPanel() {
+  const current = wfPanelDetail && wfPanelDetail.wf;
+  if (!current || !current.workflowId) return;
+  const detail = await fetchWorkflowDetail(current.workflowId);
+  if (detail.wf) renderWorkflowDetailPanelContent(detail);
+}
+
 async function showWorkflowDetailPanel(workflowId) {
   const panel = $('#node-detail-panel');
   const body = $('#node-detail-body');
   if (!panel || !body || !workflowId) return;
   panel.classList.add('is-open');
   body.innerHTML = `<div class="text-xs text-inksoft text-center mt-8">Memuat detail workflow...</div>`;
-  try {
-    const res = await callServer('getWorkflowCanvas', workflowId);
-    if (!res.success) {
-      body.innerHTML = `<p class="text-xs text-berry text-center mt-8">${escapeHtml(res.message || 'Gagal memuat detail workflow')}</p>`;
-      return;
-    }
-    const wf = res.data || {};
-    // Collect apps from all nodes' tasks
-    const appsMap = {};
-    (wf.nodes || []).forEach(n => {
-      (n.tasks || []).forEach(t => {
-        (t.applications || []).forEach(a => {
-          const key = String(a.taskAppId || a.id || a.url || a.name);
-          if (!appsMap[key]) appsMap[key] = a;
-        });
-      });
-    });
-    const apps = Object.values(appsMap);
-    body.innerHTML = `
-      <div class="space-y-4">
-        <div>
-          <h3 class="text-sm font-semibold">${escapeHtml(wf.workflowName || '')}</h3>
-          ${wf.description ? `<p class="text-xs text-inksoft mt-1 leading-relaxed">${escapeHtml(wf.description)}</p>` : `<p class="text-xs text-inksoft mt-1">Tanpa deskripsi</p>`}
-        </div>
-        <div class="p-3 rounded-md border border-line bg-paper/50">
-          <div class="flex items-center justify-between mb-2">
-            <p class="text-xs font-medium">Aplikasi terkait</p>
-            <span class="text-[10px] text-inksoft">${apps.length} aplikasi</span>
-          </div>
-          <p class="text-[10px] text-inksoft mb-2">Dari task di node workflow ini</p>
-          ${apps.length > 0 ? `
-            <div class="space-y-1.5">
-              ${apps.map(a => `
-                <a href="${escapeHtml(a.url || '#')}" target="_blank" rel="noopener" class="flex items-center gap-2 p-1.5 rounded-md border border-line bg-card hover:bg-paper transition-colors group">
-                  <div class="h-6 w-6 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-[10px] font-semibold shrink-0">${escapeHtml((a.name || '?').charAt(0).toUpperCase())}</div>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-xs font-medium truncate">${escapeHtml(a.name || '')}</p>
-                    ${a.linkLabel ? `<p class="text-[10px] text-inksoft truncate">${escapeHtml(a.linkLabel)}</p>` : ''}
-                  </div>
-                  <i data-lucide="external-link" class="h-3 w-3 text-inksoft/60 group-hover:text-fern shrink-0"></i>
-                </a>
-              `).join('')}
-            </div>
-          ` : `<p class="text-[11px] text-inksoft">Belum ada aplikasi terkait dari node/task di workflow ini.</p>`}
-        </div>
-        <div class="p-3 rounded-md border border-fernlight/40 bg-fernlight/10">
-          <p class="text-xs font-medium text-ferndeep mb-1">Tautkan aplikasi ke workflow</p>
-          <p class="text-[11px] text-inksoft mb-2">Koneksi bisa ke node atau langsung ke workflow.</p>
-          <button id="wf-link-app" class="btn btn-primary btn-sm w-full justify-start"><i data-lucide="link" class="h-3.5 w-3.5"></i>Tautkan aplikasi dari Application Hub</button>
-          <button id="wf-add-app" class="btn btn-secondary btn-sm w-full justify-start mt-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah aplikasi baru & tautkan</button>
-        </div>
-        <div class="pt-1 border-t border-line">
-          <button id="wf-open-canvas" class="btn btn-secondary w-full justify-start"><i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i>Buka canvas</button>
-        </div>
-      </div>
-    `;
-    refreshIcons();
-    const linkBtn = $('#wf-link-app');
-    if (linkBtn) linkBtn.addEventListener('click', () => {
-      // Try to use existing app linking UI patterns - open task-like app linking or just navigate
-      setView({ kind: 'applications' });
-      toast('Pilih aplikasi di Application Hub untuk ditautkan', 'info');
-    });
-    const addBtn = $('#wf-add-app');
-    if (addBtn) addBtn.addEventListener('click', () => {
-      setView({ kind: 'applications' });
-      toast('Tambahkan aplikasi baru di Application Hub', 'info');
-    });
-    const openCanvasBtn = $('#wf-open-canvas');
-    if (openCanvasBtn) openCanvasBtn.addEventListener('click', () => {
-      setView({ kind: 'canvas', workflowId: wf.workflowId, workflowName: wf.workflowName });
-    });
-  } catch (e) {
-    body.innerHTML = `<p class="text-xs text-berry text-center mt-8">Gagal memuat detail workflow</p>`;
+  const detail = await fetchWorkflowDetail(workflowId);
+  if (!detail.wf) {
+    body.innerHTML = `<p class="text-xs text-berry text-center mt-8">${escapeHtml(detail.error || 'Gagal memuat detail workflow')}</p>`;
+    return;
   }
+  renderWorkflowDetailPanelContent(detail);
+}
+
+// Modal detail workflow lengkap (dibuka dari daftar workflow).
+async function showWorkflowDetailModal(workflowId, workflowName, initialDetail) {
+  let detail = initialDetail || await fetchWorkflowDetail(workflowId);
+  if (!detail || !detail.wf) {
+    toast((detail && detail.error) || 'Gagal memuat detail workflow', 'error');
+    return;
+  }
+  const previouslyFocused = document.activeElement;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'fixed inset-0 z-[75] bg-ink/40 flex items-center justify-center p-4';
+  backdrop.innerHTML = `
+    <div class="bg-card rounded-xl shadow-soft max-w-3xl w-full max-h-[92vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="wf-detail-title">
+      <div class="px-5 py-3 border-b border-line flex items-start justify-between gap-3 shrink-0">
+        <div class="min-w-0">
+          <h3 id="wf-detail-title" class="text-base font-semibold truncate">${escapeHtml(detail.wf.workflowName || workflowName || 'Detail Workflow')}</h3>
+          <p class="text-[11px] text-inksoft">Detail workflow & aplikasi terkait</p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm h-7 w-7 p-0" data-wf-detail-close aria-label="Tutup"><i data-lucide="x" class="h-4 w-4"></i></button>
+      </div>
+      <div class="p-5 overflow-y-auto space-y-4" id="wf-detail-body"></div>
+      <div class="px-5 py-3 border-t border-line flex items-center justify-between gap-2 shrink-0">
+        <button type="button" class="btn btn-ghost btn-sm" data-wf-detail-close>Tutup</button>
+        <button type="button" class="btn btn-primary btn-sm" data-wf-detail-open-canvas><i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i>Buka canvas</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  refreshIcons();
+
+  const bodyEl = backdrop.querySelector('#wf-detail-body');
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKey, true);
+    backdrop.remove();
+    if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus({ preventScroll: true });
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  backdrop.querySelectorAll('[data-wf-detail-close]').forEach((b) => b.addEventListener('click', close));
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  backdrop.querySelector('[data-wf-detail-open-canvas]').addEventListener('click', () => {
+    const wf = detail.wf;
+    close();
+    setView({ kind: 'canvas', workflowId: wf.workflowId, workflowName: wf.workflowName });
+  });
+
+  const renderBody = () => {
+    const wf = detail.wf || {};
+    const depts = (wf.departments || []).map((d) => `<span class="badge badge-dept">${escapeHtml(d)}</span>`).join('');
+    const linkCount = (detail.links || []).length;
+    bodyEl.innerHTML = `
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="badge bg-paper text-ink">Workflow</span>
+        ${wf.category ? `<span class="badge badge-cat"><i data-lucide="tag" class="h-2.5 w-2.5"></i>${escapeHtml(wf.category)}</span>` : ''}
+        ${depts}
+      </div>
+      <div>
+        <p class="text-sm text-inksoft leading-relaxed whitespace-pre-wrap">${escapeHtml(wf.description || 'Tanpa deskripsi')}</p>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+        <div class="rounded-lg border border-line bg-paper/50 py-2"><p class="text-base font-semibold tabular-nums">${Number(wf.taskCount) || 0}</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Task</p></div>
+        <div class="rounded-lg border border-line bg-paper/50 py-2"><p class="text-base font-semibold tabular-nums">${Number(wf.progress) || 0}%</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Progress</p></div>
+        <div class="rounded-lg border border-line bg-paper/50 py-2"><p class="text-base font-semibold tabular-nums">${(wf.nodes || []).length}</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Node</p></div>
+        <div class="rounded-lg border border-line bg-paper/50 py-2"><p class="text-base font-semibold tabular-nums">${linkCount}</p><p class="text-[9px] text-inksoft uppercase tracking-wide">Tautan app</p></div>
+      </div>
+      ${workflowAppsSectionHtml(detail, { editable: true })}
+      <div>
+        <div class="flex items-center justify-between mb-2 gap-2">
+          <p class="text-xs font-semibold">Pratinjau diagram</p>
+          <span class="text-[10px] text-inksoft">${(wf.nodes || []).length} node · ${(wf.edges || []).length} koneksi</span>
+        </div>
+        <div class="rounded-lg border border-line bg-paper/40 overflow-hidden">
+          ${workflowMiniDiagramSvg(wf.nodes, wf.edges)}
+        </div>
+      </div>`;
+    refreshIcons();
+    wireWorkflowDetailActions(bodyEl, detail, async () => {
+      const next = await fetchWorkflowDetail(wf.workflowId);
+      if (next.wf) {
+        detail = next;
+        renderBody();
+      }
+      if (State.currentWorkflowId && String(State.currentWorkflowId) === String(wf.workflowId)) {
+        refreshWorkflowPanel();
+      }
+    });
+  };
+
+  renderBody();
 }
 
 function showNodePanelEmpty() {
