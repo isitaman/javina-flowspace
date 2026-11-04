@@ -415,17 +415,28 @@
     return initPromise;
   }
 
+  var currentMember = null;
+
   function setSession(user) {
     if (!user) {
       global.FlowSession = null;
+      currentMember = null;
       return;
     }
     var email = lowerEmail(user.email);
+    var preferredName = (currentMember && currentMember.display_name) ? String(currentMember.display_name).trim() : '';
     global.FlowSession = {
       uid: user.uid,
       email: email,
-      displayName: user.displayName || email.split('@')[0],
+      displayName: preferredName || user.displayName || email.split('@')[0],
     };
+  }
+
+  function setCurrentMember(member) {
+    currentMember = member || null;
+    if (auth && auth.currentUser) {
+      setSession(auth.currentUser);
+    }
   }
 
   /* --- Penanda sesi (bukan kredensial) ------------------------- */
@@ -712,8 +723,10 @@
         var km = knownMember.data();
         if (km.member_status === 'active') {
           km = await repairOwnDisplayName(knownWs, km, user, email);
+          setCurrentMember(km);
           return { status: 'active', workspaceId: knownWs, member: km };
         }
+        setCurrentMember(km);
         return { status: 'inactive', workspaceId: knownWs, member: km };
       }
       // Dokumen member hilang (dihapus admin) -> lupakan workspace lama.
@@ -745,10 +758,12 @@
           workspaceId: target, email: email, updatedAt: nowIso(),
         }, { merge: true });
         var joined = await memberRef.get();
+        var jm = joined.data() || {};
+        setCurrentMember(jm);
         return {
-          status: joined.data() && joined.data().member_status === 'active' ? 'active' : 'inactive',
+          status: jm.member_status === 'active' ? 'active' : 'inactive',
           workspaceId: target,
-          member: joined.data(),
+          member: jm,
         };
       }
     }
@@ -806,7 +821,9 @@
     }, { merge: true });
 
     var memberSnap = await meRef.get();
-    return { workspaceId: wsId, member: await repairOwnDisplayName(wsId, memberSnap.data(), user, email) };
+    var ownerMember = await repairOwnDisplayName(wsId, memberSnap.data(), user, email);
+    setCurrentMember(ownerMember);
+    return { workspaceId: wsId, member: ownerMember };
   }
 
   /* ------------------------------------------------------------
@@ -1189,7 +1206,7 @@
       attachments_json: attachmentsJson,
       sender_uid: auth.currentUser.uid,
       sender_email: email,
-      sender_name: (global.FlowSession && global.FlowSession.displayName) || email.split('@')[0],
+      sender_name: ((currentMember && currentMember.display_name) ? String(currentMember.display_name).trim() : '') || (global.FlowSession && global.FlowSession.displayName) || email.split('@')[0],
       created_at: now,
       updated_at: now,
       edited_at: '',
@@ -1335,6 +1352,7 @@
   global.FlowFirebase = {
     enabled: enabled,
     init: init,
+    setCurrentMember: setCurrentMember,
     info: info,
     onAuthChange: onAuthChange,
     currentUser: currentUser,

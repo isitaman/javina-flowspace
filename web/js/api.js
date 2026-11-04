@@ -435,12 +435,27 @@
     if (body.length > 2000) throw new Error('Pesan maksimal 2000 karakter.');
     return body;
   }
+  function getMemberDisplayName(email) {
+    try {
+      var ws = currentWorkspace();
+      var rows = Store.findBy('members', 'workspace_id', ws.workspace_id);
+      var key = String(email || '').toLowerCase();
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].email || '').toLowerCase() === key && rows[i].display_name) {
+          return rows[i].display_name;
+        }
+      }
+    } catch (e) {}
+    return '';
+  }
+
   function chatDto(m) {
+    var memberName = getMemberDisplayName(m.sender_email);
     return {
       id: m.message_id, body: m.body || '',
       attachments: parseAttachments(m.attachments_json),
       senderUid: m.sender_uid, senderEmail: m.sender_email,
-      senderName: m.sender_name || m.sender_email,
+      senderName: memberName || m.sender_name || m.sender_email,
       createdAt: String(m.created_at || ''), editedAt: String(m.edited_at || ''),
       deletedAt: String(m.deleted_at || ''), isDeleted: !!m.deleted_at,
       canEdit: isMyComment({ created_by_uid: m.sender_uid, created_by_email: m.sender_email }) && !m.deleted_at,

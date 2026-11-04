@@ -292,6 +292,10 @@ async function initApp() {
   State.init = res.data;
   // Tampilkan nama workspace di sidebar
   if (res.data.workspace) $('#ws-name').textContent = res.data.workspace.name;
+  if (window.FlowFirebase && window.FlowFirebase.setCurrentMember) {
+    var meInit = (res.data.members || []).find(function(m){ return String(m.email).toLowerCase() === String((res.data.currentUser && res.data.currentUser.email)||'').toLowerCase(); });
+    if (meInit) window.FlowFirebase.setCurrentMember({ display_name: meInit.displayName, email: meInit.email, role: meInit.role });
+  }
   if (window.Chat) Chat.init();
   renderNav();
   renderHeader();
@@ -567,6 +571,7 @@ async function handleAuthChange(user) {
       await attachWithRetry(fb, res, run);
       if (run !== _authRun) return;
       _attachedUid = String(user.uid);
+      if (fb.setCurrentMember) fb.setCurrentMember(res.member);
       if (fb.rememberSession) fb.rememberSession(user);
       AuthUI.hide();
       setSyncLabel('online');
@@ -726,13 +731,37 @@ function closeSidebar() {
     const close = document.getElementById('sidebar-close');
     const backdrop = document.getElementById('sidebar-backdrop');
     const toggle = document.getElementById('sidebar-toggle');
+    const expand = document.getElementById('sidebar-expand');
     const key = 'flowspace.sidebar.collapsed';
-    function applyCollapsed(v){ if(v){ document.body.classList.add('sidebar-collapsed'); if(toggle){ toggle.setAttribute('title','Perluas sidebar'); toggle.setAttribute('aria-label','Perluas sidebar'); } } else { document.body.classList.remove('sidebar-collapsed'); if(toggle){ toggle.setAttribute('title','Ciutkan sidebar'); toggle.setAttribute('aria-label','Ciutkan sidebar'); } } try{ localStorage.setItem(key, v?'1':'0'); }catch(e){} }
-    try{ if(localStorage.getItem(key)==='1'){ document.body.classList.add('sidebar-collapsed'); if(toggle){ toggle.setAttribute('title','Perluas sidebar'); toggle.setAttribute('aria-label','Perluas sidebar'); } } }catch(e){}
-    if(toggle){ toggle.addEventListener('click', ()=>{ if(document.body.classList.contains('sidebar-collapsed')) applyCollapsed(false); else applyCollapsed(true); }); }
-    if(hamburger) hamburger.addEventListener('click', openSidebar);
-    if(close) close.addEventListener('click', closeSidebar);
-    if(backdrop) backdrop.addEventListener('click', closeSidebar);
+
+    function applyCollapsed(v) {
+      if (v) {
+        document.body.classList.add('sidebar-collapsed');
+      } else {
+        document.body.classList.remove('sidebar-collapsed');
+      }
+      try { localStorage.setItem(key, v ? '1' : '0'); } catch (e) {}
+      if (window.lucide && typeof lucide.createIcons === 'function') {
+        try { lucide.createIcons(); } catch (e) {}
+      }
+    }
+
+    try {
+      if (localStorage.getItem(key) === '1') {
+        document.body.classList.add('sidebar-collapsed');
+      }
+    } catch (e) {}
+
+    if (toggle) {
+      toggle.addEventListener('click', () => applyCollapsed(true));
+    }
+    if (expand) {
+      expand.addEventListener('click', () => applyCollapsed(false));
+    }
+
+    if (hamburger) hamburger.addEventListener('click', openSidebar);
+    if (close) close.addEventListener('click', closeSidebar);
+    if (backdrop) backdrop.addEventListener('click', closeSidebar);
   });
 
 /* Realtime: otomatis refresh view saat ada perubahan dari TAB LAIN.
