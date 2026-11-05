@@ -1303,8 +1303,12 @@ async function renderCanvas(container) {
     renderNodePanel(data.data);
   });
   State.editor.on('nodeUnselected', () => {
+    // Tunda sedikit: jika node lain segera dipilih, jangan menimpa panel.
+    const prev = State.selectedNode;
     State.selectedNode = null;
-    showNodePanelEmpty();
+    setTimeout(() => {
+      if (!State.selectedNode) showNodePanelEmpty();
+    }, 30);
   });
 
   // Palette buttons
@@ -2423,6 +2427,11 @@ function showNodePanelEmpty() {
   const panel = $('#node-detail-panel');
   const body = $('#node-detail-body');
   if (!panel || !body) return;
+  // Jangan timpa jika node masih terpilih (hindari race dengan event Drawflow).
+  if (State.selectedNode && State.selectedNode.customId) {
+    panel.classList.add('is-open');
+    return;
+  }
   panel.classList.remove('is-open');
   if (State.view && State.view.kind === 'canvas' && State.currentWorkflowId) {
     showWorkflowDetailPanel(State.currentWorkflowId);
