@@ -1184,6 +1184,36 @@ async function renderCanvas(container) {
   // Semua titik node bisa menjadi awal maupun tujuan koneksi.
   setupPortDragging(el);
 
+  // Drawflow hanya mendengarkan mouseup di dalam container. Jika tombol mouse
+  // dilepas di luar canvas (mis. di atas panel kanan / luar jendela), state
+  // drag tertinggal dan canvas ikut bergeser saat mouse digerakkan.
+  if (window._flowspaceDrawflowCleanup) {
+    try {
+      window.removeEventListener('mouseup', window._flowspaceDrawflowCleanup);
+      window.removeEventListener('pointerup', window._flowspaceDrawflowCleanup);
+      window.removeEventListener('touchend', window._flowspaceDrawflowCleanup);
+    } catch (err) {}
+  }
+  const cleanupDrawflowDrag = (ev) => {
+    const ed = State.editor;
+    if (!ed) return;
+    if (!(ed.editor_selected || ed.drag || ed.drag_point || ed.connection || ed.connection_ele)) return;
+    try {
+      ed.dragEnd(ev);
+    } catch (err) {
+      ed.drag = false;
+      ed.drag_point = false;
+      ed.connection = false;
+      ed.editor_selected = false;
+      ed.ele_selected = null;
+      ed.connection_ele = null;
+    }
+  };
+  window._flowspaceDrawflowCleanup = cleanupDrawflowDrag;
+  window.addEventListener('mouseup', cleanupDrawflowDrag);
+  window.addEventListener('pointerup', cleanupDrawflowDrag);
+  window.addEventListener('touchend', cleanupDrawflowDrag);
+
   State.selectedNode = null;
 
   function captureCanvasSnapshot() {
@@ -1266,18 +1296,35 @@ async function renderCanvas(container) {
   State.editor.on('nodeRemoved', (id) => { if (!State.canvasLoading) { pushCanvasUndo(); if (State.selectedNode && String(State.selectedNode.drawflowId) === String(id)) { State.selectedNode = null; showNodePanelEmpty(); } setCanvasDirty(); } });
   State.editor.on('connectionCreated', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
   State.editor.on('connectionRemoved', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
-  // Drawflow tidak selalu emit event saat reroute point dibuat/digeser, jadi tangkap interaksi.
-  let rerouteDirtyTimer = null;
+  // Drawflow memancarkan event untuk titik tekuk, tapi snapshot undo harus
+  // diambil SEBELUM perubahan (event baru terkirim setelah data berubah).
   const markRerouteDirty = () => {
+    if (!State.canvasLoading) setCanvasDirty();
+  };
+  State.editor.on('addReroute', markRerouteDirty);
+  State.editor.on('removeReroute', markRerouteDirty);
+  State.editor.on('rerouteMoved', markRerouteDirty);
+  const captureRerouteUndo = () => {
+    if (State.canvasLoading) return;
+    pushCanvasUndo();
+  };
+  el.addEventListener('mousedown', (e) => {
+    if (e.target && e.target.closest('.point')) captureRerouteUndo();
+  }, true);
+  el.addEventListener('dblclick', (e) => {
+    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) captureRerouteUndo();
+  }, true);
+  let rerouteDirtyTimer = null;
+  const markRerouteDirtySoon = () => {
     if (State.canvasLoading) return;
     if (rerouteDirtyTimer) clearTimeout(rerouteDirtyTimer);
-    rerouteDirtyTimer = setTimeout(() => { pushCanvasUndo(); setCanvasDirty(); }, 200);
+    rerouteDirtyTimer = setTimeout(markRerouteDirty, 200);
   };
   el.addEventListener('mouseup', (e) => {
-    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) markRerouteDirty();
+    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) markRerouteDirtySoon();
   });
   el.addEventListener('touchend', (e) => {
-    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) markRerouteDirty();
+    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) markRerouteDirtySoon();
   }, { passive: true });
   // Edit edge label on double click
   el.addEventListener('dblclick', (e) => {
@@ -1308,7 +1355,23 @@ async function renderCanvas(container) {
     showEdgeContextMenu(e, conn);
   });
   // Klik di luar node: batal pilih node, kembali ke detail workflow.
+  // Abaikan klik yang sebenarnya hasil dari drag/pan canvas.
+  let canvasDownX = 0;
+  let canvasDownY = 0;
+  let canvasDragged = false;
+  el.addEventListener('mousedown', (e) => {
+    canvasDownX = e.clientX;
+    canvasDownY = e.clientY;
+    canvasDragged = false;
+  }, true);
+  el.addEventListener('mousemove', (e) => {
+    if (!e.buttons) return;
+    if (Math.abs(e.clientX - canvasDownX) > 4 || Math.abs(e.clientY - canvasDownY) > 4) {
+      canvasDragged = true;
+    }
+  }, true);
   el.addEventListener('click', (e) => {
+    if (canvasDragged) { canvasDragged = false; return; }
     if (e.target.closest('.drawflow-node') || e.target.closest('.point') || e.target.closest('.edge-label-group') || e.target.closest('.connection .main-path')) return;
     // Klik pada kanvas kosong / background
     if (State.selectedNode || (State.editor && State.editor.node_selected)) {
@@ -1338,10 +1401,32 @@ async function renderCanvas(container) {
     }, 30);
   });
 
-  // Palette buttons
+  // Palette buttons: klik = tambah di tengah viewport, tarik = letakkan bebas.
   $$('[class*="palette-btn-"]', container).forEach(btn => {
+    btn.setAttribute('draggable', 'true');
+    btn.addEventListener('dragstart', (e) => {
+      try {
+        e.dataTransfer.setData('text/plain', btn.dataset.type || '');
+        e.dataTransfer.effectAllowed = 'copy';
+      } catch (err) {}
+    });
     btn.addEventListener('click', () => { pushCanvasUndo(); addNode(btn.dataset.type); });
   });
+  const stage = $('#drawflow-container');
+  if (stage) {
+    stage.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'copy'; } catch (err) {}
+    });
+    stage.addEventListener('drop', (e) => {
+      e.preventDefault();
+      let type = '';
+      try { type = e.dataTransfer.getData('text/plain') || ''; } catch (err) {}
+      if (!type || !NODE_TYPES.some(t => t.id === type)) return;
+      pushCanvasUndo();
+      addNodeAtClientPosition(type, e.clientX, e.clientY);
+    });
+  }
 
   // Save button
   $('#save-canvas-btn').addEventListener('click', () => saveCanvas());
@@ -1431,6 +1516,7 @@ async function renderCanvas(container) {
   State.canvasVersion = res.data.version;
   State.canvasLoading = true;
   State.canvasUndoStack = [];
+  State.canvasAddSeq = 0;
   const nodeIdMap = {};
   res.data.nodes.forEach(n => {
     nodeIdMap[n.id] = addNodeToCanvas(n);
@@ -1480,13 +1566,59 @@ async function renderCanvas(container) {
   State.canvasLoading = false;
   try { showNodePanelEmpty(); } catch (e) {}
 
-  // Fix: garis koneksi
+  // Fix: garis koneksi & titik tekuk (reroute)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       if (!State.editor || !State.editor.drawflow) return;
       const data = State.editor.drawflow.drawflow.Home.data;
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      // Kembalikan titik tekuk: tambahkan path tambahan + circle sesuai data.
+      // Urutan anak elemen harus sama seperti addRerouteImport milik Drawflow:
+      // main-path, main-path tambahan..., lalu semua circle point.
+      res.data.edges.forEach(e => {
+        if (!Array.isArray(e.points) || e.points.length === 0) return;
+        try {
+          const fromId = nodeIdMap[e.source];
+          const toId = nodeIdMap[e.target];
+          if (fromId == null || toId == null) return;
+          const outKey = e.sourceOutput || 'output_1';
+          const inKey = e.targetInput || 'input_1';
+          const conn = State.editor.container.querySelector(`.connection.node_in_node-${toId}.node_out_node-${fromId}.${outKey}.${inKey}`);
+          if (!conn) return;
+          conn.querySelectorAll('.point').forEach(p => p.remove());
+          const paths = conn.querySelectorAll('.main-path');
+          for (let i = 1; i < paths.length; i++) paths[i].remove();
+          const points = e.points
+            .map(p => ({ pos_x: Number(p.pos_x), pos_y: Number(p.pos_y) }))
+            .filter(p => Number.isFinite(p.pos_x) && Number.isFinite(p.pos_y));
+          if (!points.length) return;
+          if (State.editor.reroute_fix_curvature) {
+            for (let i = 0; i < points.length; i++) {
+              const extraPath = document.createElementNS(SVG_NS, 'path');
+              extraPath.classList.add('main-path');
+              extraPath.setAttributeNS(null, 'd', '');
+              conn.appendChild(extraPath);
+            }
+          }
+          points.forEach(pt => {
+            const circle = document.createElementNS(SVG_NS, 'circle');
+            circle.classList.add('point');
+            circle.setAttributeNS(null, 'cx', pt.pos_x);
+            circle.setAttributeNS(null, 'cy', pt.pos_y);
+            circle.setAttributeNS(null, 'r', State.editor.reroute_width || 6);
+            conn.appendChild(circle);
+          });
+          // Pastikan data internal koneksi juga menyimpan points.
+          const fromNode = data[fromId];
+          if (fromNode && fromNode.outputs && fromNode.outputs[outKey]) {
+            const targetConn = (fromNode.outputs[outKey].connections || [])
+              .find(c => String(c.node) === String(toId) && (c.output || 'input_1') === inKey);
+            if (targetConn) targetConn.points = points.slice();
+          }
+        } catch (err) { /* lanjutkan */ }
+      });
       Object.keys(data).forEach(id => {
-        State.editor.updateConnectionNodes('node-' + id);
+        try { State.editor.updateConnectionNodes('node-' + id); } catch (err) {}
       });
       // apply labels again after update
       res.data.edges.forEach(e => {
@@ -1827,15 +1959,57 @@ function setNodeCustomHtml(drawflowId, html) {
   }
 }
 
-function addNode(nodeType) {
+function canvasPointFromClient(clientX, clientY) {
+  const editor = State.editor;
+  if (!editor || !editor.precanvas) return { x: 0, y: 0 };
+  const rect = editor.precanvas.getBoundingClientRect();
+  const zoom = editor.zoom || 1;
+  return { x: (clientX - rect.left) / zoom, y: (clientY - rect.top) / zoom };
+}
+
+// Posisi default untuk node baru (klik palette): tengah viewport, dengan
+// sedikit pergeseran bertahap supaya node tidak menumpuk di satu titik.
+function nextNodePlacement() {
+  const editor = State.editor;
+  const container = (editor && editor.container) || document.getElementById('drawflow');
+  let point = { x: 120, y: 120 };
+  if (container) {
+    const rect = container.getBoundingClientRect();
+    point = canvasPointFromClient(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }
+  const seq = (State.canvasAddSeq = (State.canvasAddSeq || 0) + 1);
+  const step = ((seq - 1) % 8) * 24;
+  return { x: Math.round(point.x - 80 + step), y: Math.round(point.y - 40 + step) };
+}
+
+function addNodeAtClientPosition(nodeType, clientX, clientY) {
+  const point = canvasPointFromClient(clientX, clientY);
+  const drawflowId = addNode(nodeType, { x: Math.round(point.x - 80), y: Math.round(point.y - 40) });
+  if (drawflowId == null) return;
+  const nodeEl = document.getElementById('node-' + drawflowId);
+  const d = State.editor && State.editor.drawflow && State.editor.drawflow.drawflow.Home.data[drawflowId];
+  if (nodeEl && d) {
+    const w = nodeEl.offsetWidth || 160;
+    const h = nodeEl.offsetHeight || 64;
+    d.pos_x = Math.round(point.x - w / 2);
+    d.pos_y = Math.round(point.y - h / 2);
+    nodeEl.style.left = d.pos_x + 'px';
+    nodeEl.style.top = d.pos_y + 'px';
+    try { State.editor.updateConnectionNodes('node-' + drawflowId); } catch (err) {}
+    setCanvasDirty();
+  }
+}
+
+function addNode(nodeType, position) {
   const titles = { start_end: 'Mulai', process: 'Proses Baru', task: 'Task Baru', decision: 'Keputusan?', application: 'Aplikasi', note: 'Catatan Baru', workflow_link: 'Lanjut ke Workflow' };
+  const pos = position || nextNodePlacement();
   const n = {
     id: Store.generateId('node'),
     nodeType: nodeType,
     title: titles[nodeType] || 'Node Baru',
     description: '',
-    positionX: 100 + Math.random() * 200,
-    positionY: 100 + Math.random() * 100,
+    positionX: pos.x,
+    positionY: pos.y,
     task: null,
     linkedWorkflowId: '',
     linkedWorkflowName: '',
@@ -1853,6 +2027,7 @@ function addNode(nodeType) {
   }
   setCanvasDirty();
   toast(`Node ${NODE_TYPE_LABEL[nodeType] || nodeType} ditambahkan`, 'info');
+  return drawflowId;
 }
 
 // Canvas keyboard shortcuts

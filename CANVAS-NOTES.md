@@ -44,3 +44,27 @@ git reset --hard backup-canvas-pre-improve-20261106
   selalu menumpuk di area kiri-atas.
 - Deploy hosting dijalankan dari folder `web/`:
   `firebase deploy --only hosting --project javina-project`.
+
+## Perubahan setelah backup (2026-11-06)
+
+1. **Titik tekuk (reroute) disimpan & dipulihkan**
+   - `saveCanvasLayout` menulis `edges.points_json`; `getWorkflowCanvas`
+     mengembalikannya sebagai `points`.
+   - Saat canvas dimuat, path tambahan + circle titik tekuk dibuat ulang
+     dengan urutan yang sama seperti `addRerouteImport` Drawflow, lalu
+     `updateConnectionNodes` menggambar ulang kurva.
+   - Event `addReroute` / `removeReroute` / `rerouteMoved` menandai canvas
+     dirty; snapshot undo diambil sebelum perubahan.
+2. **Penempatan node**
+   - Klik palette: node muncul di tengah viewport (dengan pergeseran
+     bertahap), bukan di koordinat acak area kiri-atas.
+   - Drag-and-drop: tarik tombol palette ke canvas, node diletakkan di
+     titik lepas (koordinat dikonversi memakai zoom & posisi precanvas).
+3. **Bug drag/pan**
+   - `mouseup`/`pointerup`/`touchend` di level window memanggil `dragEnd`
+     bila state drag Drawflow masih aktif, sehingga melepas mouse di luar
+     canvas tidak membuat canvas ikut bergeser.
+   - Klik hasil pan (gerakan > 4px) tidak dianggap klik kosong, jadi panel
+     kanan tidak ter-reset saat menggeser canvas.
+4. **Tes**: `tests/canvas-test.js` (klik palette, drag-and-drop, pan lepas
+   di luar canvas, simpan & pulihkan titik tekuk).

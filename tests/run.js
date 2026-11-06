@@ -27,6 +27,7 @@ const SUITES = [
   ['phase1 (backup & diagnostik)', 'phase1-test.js'],
   ['phase2 (global search / Ctrl+K)', 'phase2-test.js'],
   ['workflow-detail (modal detail + tautan aplikasi)', 'workflow-detail-test.js'],
+  ['canvas (penempatan node + titik tekuk)', 'canvas-test.js'],
 ];
 
 if (process.env.FLOWSPACE_SHOTS === '1') {

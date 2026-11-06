@@ -765,6 +765,7 @@
             edge_id: Store.generateId('edge'), workflow_id: newId,
             source_node_id: ns, target_node_id: nt, label: e.label || '', condition: e.condition || '',
             source_output: e.source_output || 'output_1', target_input: e.target_input || 'input_1',
+            points_json: e.points_json || '[]',
             created_at: now, updated_at: now,
           });
         }
