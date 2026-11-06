@@ -1266,6 +1266,19 @@ async function renderCanvas(container) {
   State.editor.on('nodeRemoved', (id) => { if (!State.canvasLoading) { pushCanvasUndo(); if (State.selectedNode && String(State.selectedNode.drawflowId) === String(id)) { State.selectedNode = null; showNodePanelEmpty(); } setCanvasDirty(); } });
   State.editor.on('connectionCreated', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
   State.editor.on('connectionRemoved', () => { if (!State.canvasLoading) { pushCanvasUndo(); setCanvasDirty(); refreshEdgeLabels(); } });
+  // Drawflow tidak selalu emit event saat reroute point dibuat/digeser, jadi tangkap interaksi.
+  let rerouteDirtyTimer = null;
+  const markRerouteDirty = () => {
+    if (State.canvasLoading) return;
+    if (rerouteDirtyTimer) clearTimeout(rerouteDirtyTimer);
+    rerouteDirtyTimer = setTimeout(() => { pushCanvasUndo(); setCanvasDirty(); }, 200);
+  };
+  el.addEventListener('mouseup', (e) => {
+    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) markRerouteDirty();
+  });
+  el.addEventListener('touchend', (e) => {
+    if (e.target && (e.target.closest('.point') || e.target.closest('.main-path'))) markRerouteDirty();
+  }, { passive: true });
   // Edit edge label on double click
   el.addEventListener('dblclick', (e) => {
     const labelGroup = e.target.closest('.edge-label-group');
