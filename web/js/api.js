@@ -848,10 +848,15 @@
       });
 
       var edgesPayload = edges.map(function (e) {
+        var points = [];
+        try {
+          if (e.points_json) points = typeof e.points_json === 'string' ? JSON.parse(e.points_json) : e.points_json;
+        } catch (ex) {}
         return {
           id: e.edge_id, source: e.source_node_id, target: e.target_node_id,
           label: e.label || '', condition: e.condition || '',
           sourceOutput: e.source_output || 'output_1', targetInput: e.target_input || 'input_1',
+          points: Array.isArray(points) ? points : [],
         };
       });
 
@@ -946,12 +951,14 @@
       });
 
       var newEdges = edges.map(function (e) {
+        var pts = Array.isArray(e.points) ? e.points : [];
         return {
           edge_id: e.id || Store.generateId('edge'),
           workflow_id: payload.workflowId,
           source_node_id: e.source, target_node_id: e.target,
           label: e.label || '', condition: e.condition || '',
           source_output: e.sourceOutput || 'output_1', target_input: e.targetInput || 'input_1',
+          points_json: JSON.stringify(pts),
           created_at: now, updated_at: now,
         };
       });

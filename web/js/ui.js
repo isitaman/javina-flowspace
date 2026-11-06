@@ -1279,6 +1279,11 @@ async function renderCanvas(container) {
       }
     }
     // Biarkan Drawflow handle double-click di garis kosong untuk menambah titik tekuk (reroute)
+    setTimeout(() => {
+      if (!State.canvasLoading) {
+        setCanvasDirty();
+      }
+    }, 100);
   });
 
   // Context menu untuk garis: tambah/ubah label & hapus koneksi.
@@ -1289,11 +1294,20 @@ async function renderCanvas(container) {
     e.stopPropagation();
     showEdgeContextMenu(e, conn);
   });
+  // Klik di luar node: batal pilih node, kembali ke detail workflow.
   el.addEventListener('click', (e) => {
-    const path = e.target.closest('.connection .main-path');
-    if (!path) return;
-    const conn = path.parentElement;
-    // single click focus not required, dblclick to edit
+    if (e.target.closest('.drawflow-node') || e.target.closest('.point') || e.target.closest('.edge-label-group') || e.target.closest('.connection .main-path')) return;
+    // Klik pada kanvas kosong / background
+    if (State.selectedNode || (State.editor && State.editor.node_selected)) {
+      State.selectedNode = null;
+      try {
+        if (State.editor && State.editor.node_selected) {
+          State.editor.node_selected.classList.remove('selected');
+          State.editor.node_selected = null;
+        }
+      } catch(err){}
+      showWorkflowDetailPanel(State.currentWorkflowId);
+    }
   });
   // nodeRemoved already handled above with undo
   State.editor.on('nodeSelected', (id) => {
@@ -1418,6 +1432,19 @@ async function renderCanvas(container) {
         const conn = State.editor.container.querySelector(`.connection.node_in_node-${toId}.node_out_node-${fromId}.${e.sourceOutput || 'output_1'}.${e.targetInput || 'input_1'}`);
         if (conn && e.label) {
           conn.dataset.label = e.label;
+        }
+        // restore reroute points
+        if (Array.isArray(e.points) && e.points.length > 0) {
+          try {
+            const fromNode = State.editor.drawflow.drawflow.Home.data[fromId];
+            if (fromNode && fromNode.outputs && fromNode.outputs[e.sourceOutput || 'output_1']) {
+              const conns = fromNode.outputs[e.sourceOutput || 'output_1'].connections || [];
+              const targetConn = conns.find(c => String(c.node) === String(toId) && (c.output || 'input_1') === (e.targetInput || 'input_1'));
+              if (targetConn) {
+                targetConn.points = e.points.map(p => ({ pos_x: Number(p.pos_x) || 0, pos_y: Number(p.pos_y) || 0 }));
+              }
+            }
+          } catch (ptErr) {}
         }
       }
     } catch (err) { /* skip */ }
@@ -1887,6 +1914,7 @@ async function saveCanvas() {
               targetInput: conn.output || 'input_1',
               label: (connSvg && connSvg.dataset) ? (connSvg.dataset.label || '') : '',
               condition: '',
+              points: Array.isArray(conn.points) ? conn.points : [],
             });
           }
         }
