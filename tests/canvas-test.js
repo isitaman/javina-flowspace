@@ -136,6 +136,59 @@ const { launchBrowser, baseUrl, newPage } = require('./helpers/browser');
     }, panBefore);
     await page.waitForTimeout(250);
 
+    // --- 3b. Pan dari area kosong di luar precanvas ----------------------
+    // Precanvas yang di-scale/translate tidak menutupi seluruh container.
+    // Drawflow memilih mode drag dari class PERTAMA elemen target, jadi
+    // `parent-drawflow` harus berada di urutan pertama — kalau tidak, klik
+    // pada area kosong itu tidak memulai pan dan canvas terasa "mati"
+    // setelah digeser beberapa kali.
+    const emptyPanGeo = await page.evaluate(() => {
+      const ed = State.editor;
+      const cr = ed.container.getBoundingClientRect();
+      const pr = ed.precanvas.getBoundingClientRect();
+      return {
+        firstClass: ed.container.classList[0],
+        x: cr.left + 8,
+        y: cr.top + 8,
+        insidePrecanvas: (cr.left + 8) >= pr.left && (cr.left + 8) <= pr.right
+          && (cr.top + 8) >= pr.top && (cr.top + 8) <= pr.bottom,
+        startX: ed.canvas_x,
+        startY: ed.canvas_y,
+      };
+    });
+    check('container drawflow memakai parent-drawflow sebagai class pertama',
+      emptyPanGeo.firstClass === 'parent-drawflow', emptyPanGeo.firstClass);
+    check('titik uji pan berada di luar precanvas', !emptyPanGeo.insidePrecanvas,
+      JSON.stringify(emptyPanGeo));
+
+    const panOnce = async () => {
+      const before = await page.evaluate(() => ({ x: State.editor.canvas_x, y: State.editor.canvas_y }));
+      await page.mouse.move(emptyPanGeo.x, emptyPanGeo.y);
+      await page.mouse.down();
+      await page.mouse.move(emptyPanGeo.x + 60, emptyPanGeo.y + 40, { steps: 6 });
+      await page.mouse.up();
+      await page.waitForTimeout(120);
+      const after = await page.evaluate(() => ({ x: State.editor.canvas_x, y: State.editor.canvas_y, selected: !!State.editor.editor_selected }));
+      return { before, after };
+    };
+
+    const pan1 = await panOnce();
+    check('pan dari area kosong di luar precanvas menggeser canvas',
+      Math.abs(pan1.after.x - pan1.before.x) > 30 && Math.abs(pan1.after.y - pan1.before.y) > 20 && !pan1.after.selected,
+      JSON.stringify(pan1));
+
+    const pan2 = await panOnce();
+    check('pan berikutnya dari titik yang sama tetap berfungsi',
+      Math.abs(pan2.after.x - pan2.before.x) > 30 && Math.abs(pan2.after.y - pan2.before.y) > 20 && !pan2.after.selected,
+      JSON.stringify(pan2));
+
+    await page.evaluate((p) => {
+      State.editor.canvas_x = p.x;
+      State.editor.canvas_y = p.y;
+      State.editor.precanvas.style.transform = 'translate(' + p.x + 'px, ' + p.y + 'px) scale(' + (State.editor.zoom || 1) + ')';
+    }, panBefore);
+    await page.waitForTimeout(250);
+
     // --- 4. Titik tekuk: tambah, simpan, buka ulang ---------------------
     const connCount = await page.locator('.connection').count();
     check('ada garis koneksi untuk diuji', connCount > 0, 'connections=' + connCount);

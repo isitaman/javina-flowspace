@@ -68,3 +68,18 @@ git reset --hard backup-canvas-pre-improve-20261106
      kanan tidak ter-reset saat menggeser canvas.
 4. **Tes**: `tests/canvas-test.js` (klik palette, drag-and-drop, pan lepas
    di luar canvas, simpan & pulihkan titik tekuk).
+5. **Pan berhenti setelah canvas digeser** (perbaikan lanjutan)
+   - Penyebab: Drawflow memilih mode drag dari **class pertama** elemen yang
+     di-mousedown. Container `#drawflow` memakai `class="h-full w-full"`,
+     sehingga `parent-drawflow` (ditambahkan Drawflow) berada di urutan
+     terakhir dan klik pada area container yang tidak tertutup precanvas
+     tidak memulai pan.
+   - Precanvas yang di-translate/scale tidak menutupi seluruh container;
+     area kosong itu makin lebar setiap kali canvas digeser, jadi pan terasa
+     "mati" setelah beberapa kali drag. `AbortError` WebChannel di console
+     tidak berhubungan (kebetulan muncul bersamaan).
+   - Perbaikan: `parent-drawflow` dijadikan class pertama pada markup
+     `#drawflow` + guard urutan class setelah `editor.start()`.
+   - Tes tambahan: pan dari titik di luar precanvas, dan pan berulang dari
+     titik yang sama.
+

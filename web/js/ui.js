@@ -1144,7 +1144,7 @@ async function renderCanvas(container) {
       </div>
     </div>
     <div id="drawflow-container" class="canvas-stage absolute top-12 left-48 right-80 bottom-0">
-      <div id="drawflow" class="h-full w-full"></div>
+      <div id="drawflow" class="parent-drawflow h-full w-full"></div>
     </div>
     <div class="canvas-detail absolute top-12 right-0 bottom-0 z-10 w-80 bg-card border-l border-line overflow-y-auto" id="node-detail-panel">
       <div class="canvas-detail-head md:hidden">
@@ -1180,6 +1180,15 @@ async function renderCanvas(container) {
   State.editor.reroute_curvature = 0.25;
   State.editor.reroute_curvature_start_end = 0.25;
   State.editor.start();
+
+  // Drawflow menentukan mode drag dari class PERTAMA elemen saat mousedown
+  // (`drawflow` = precanvas, `parent-drawflow` = container). Kalau
+  // `parent-drawflow` tidak di urutan pertama, klik pada area kosong di luar
+  // precanvas tidak memulai pan — dan area itu makin besar setiap kali canvas
+  // digeser, sehingga pan terasa "mati" setelah beberapa kali drag.
+  if (el.classList[0] !== 'parent-drawflow') {
+    el.className = 'parent-drawflow ' + String(el.className || '').replace(/\bparent-drawflow\b/g, '').trim();
+  }
 
   // Semua titik node bisa menjadi awal maupun tujuan koneksi.
   setupPortDragging(el);
