@@ -102,6 +102,48 @@ const { launchBrowser, baseUrl, newPage } = require('./helpers/browser');
     check('node drop muncul dekat titik lepas', droppedNear,
       JSON.stringify({ dropGeo, dropNew }));
 
+    // --- 2b. Tautkan aplikasi langsung ke node (tanpa lewat task) --------
+    await page.locator('#drawflow .drawflow-node').first().click();
+    await page.waitForTimeout(900);
+    const nodeAppId = await page.evaluate(() => State.selectedNode && State.selectedNode.customId);
+    check('panel node menampilkan bagian aplikasi',
+      (await page.locator('#node-apps-section [data-node-app-link-existing]').count()) === 1,
+      'node=' + nodeAppId);
+
+    await page.click('#node-apps-section [data-node-app-link-existing]');
+    await page.waitForSelector('#wf-app-pick');
+    await page.waitForFunction(() => {
+      const sel = document.querySelector('#wf-app-pick');
+      return !!sel && sel.options.length > 1;
+    });
+    const targetSelValue = await page.locator('#wf-app-target').inputValue();
+    check('dialog aplikasi langsung memilih node yang aktif',
+      targetSelValue === 'node:' + nodeAppId, targetSelValue);
+
+    const appValue = await page.locator('#wf-app-pick option').nth(1).getAttribute('value');
+    await page.selectOption('#wf-app-pick', appValue);
+    await page.click('#wf-app-submit');
+    await page.waitForTimeout(900);
+
+    const countNodeLinks = () => page.evaluate((args) => {
+      const w = Store.findById('workflows', 'workflow_id', args.wfId);
+      let links = [];
+      try { links = JSON.parse((w && w.app_links_json) || '[]'); } catch (e) {}
+      return links.filter((l) => l.target_type === 'node'
+        && String(l.target_node_id) === String(args.nodeId)).length;
+    }, { wfId, nodeId: nodeAppId });
+
+    check('aplikasi tersimpan dengan target node', (await countNodeLinks()) === 1, '');
+    await page.waitForTimeout(500);
+    check('tautan aplikasi node tampil di panel',
+      (await page.locator('#node-apps-section [data-node-app-unlink]').count()) === 1, '');
+
+    await page.click('#node-apps-section [data-node-app-unlink]');
+    await page.waitForSelector('[data-confirm-ok]');
+    await page.click('[data-confirm-ok]');
+    await page.waitForTimeout(800);
+    check('tautan aplikasi node bisa dilepas', (await countNodeLinks()) === 0, '');
+
     // --- 3. Lepas drag di luar canvas tidak boleh menyisakan state pan ----
     const panBefore = await page.evaluate(() => ({ x: State.editor.canvas_x, y: State.editor.canvas_y }));
     const panGeo = await page.evaluate(() => {

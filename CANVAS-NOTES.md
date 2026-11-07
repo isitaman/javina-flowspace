@@ -82,4 +82,16 @@ git reset --hard backup-canvas-pre-improve-20261106
      `#drawflow` + guard urutan class setelah `editor.start()`.
    - Tes tambahan: pan dari titik di luar precanvas, dan pan berulang dari
      titik yang sama.
+6. **Aplikasi langsung pada node (tanpa lewat task)**
+   - Panel detail node punya bagian "Aplikasi terkait" yang menampilkan
+     tautan langsung node → Application Hub (badge `Node`) dan aplikasi yang
+     menempel lewat task (badge `Task`).
+   - Tombol "Tautkan aplikasi ke node ini" / "Tambah aplikasi baru &
+     tautkan" membuka dialog yang sudah ada dengan target node terpilih.
+   - Data tetap di `workflows.app_links_json` (`target_type = 'node'`,
+     `target_node_id`), jadi tidak ada koleksi/kuota baru dan tautan yang
+     sama juga tampil di modal detail workflow.
+   - Tautan bisa dilepas dari panel node; node yang baru dibuat disimpan
+     dulu (autosave) sebelum aplikasi bisa ditautkan.
+
 

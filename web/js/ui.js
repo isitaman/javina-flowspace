@@ -2323,6 +2323,10 @@ function openWorkflowAppLinkDialog(options) {
   const nodes = options.nodes || [];
   const onDone = options.onDone;
   let mode = options.mode === 'new' ? 'new' : 'existing';
+  // Dari panel node: langsung arahkan ke node yang sedang dipilih.
+  const initialTarget = (options.targetType === 'node' && options.targetNodeId)
+    ? 'node:' + options.targetNodeId
+    : 'workflow';
   let apps = [];
   const previouslyFocused = document.activeElement;
 
@@ -2369,6 +2373,15 @@ function openWorkflowAppLinkDialog(options) {
     </div>`;
   document.body.appendChild(backdrop);
   refreshIcons();
+
+  // Preselect target (workflow / node) bila dialog dibuka dari panel node.
+  const targetEl = backdrop.querySelector('#wf-app-target');
+  if (targetEl) {
+    if (initialTarget !== 'workflow' && !Array.from(targetEl.options).some((o) => o.value === initialTarget)) {
+      targetEl.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(initialTarget)}">Node terpilih</option>`);
+    }
+    targetEl.value = initialTarget;
+  }
 
   const pickEl = backdrop.querySelector('#wf-app-pick');
   const submitBtn = backdrop.querySelector('#wf-app-submit');
@@ -2731,6 +2744,152 @@ function showConfirmDialog(options = {}) {
   });
 }
 
+/* --- Aplikasi langsung pada node (tanpa lewat task) ---------------
+ * Tautan disimpan di `workflows.app_links_json` dengan target node,
+ * memakai API yang sama dengan tautan aplikasi di modal detail workflow.
+ * ---------------------------------------------------------------- */
+
+function canvasNodeTargetsForApp() {
+  const wfId = State.currentWorkflowId;
+  if (!wfId) return [];
+  return (Store.findBy('nodes', 'workflow_id', wfId) || [])
+    .map((n) => ({ id: n.node_id, title: n.title || '' }))
+    .filter((n) => n.id);
+}
+
+function nodeAppRow(app, source) {
+  const initial = String(app.name || '?').charAt(0).toUpperCase();
+  const isTask = source === 'task';
+  return `
+    <div class="flex items-center gap-2 p-1.5 rounded-md border border-line bg-card">
+      <div class="h-6 w-6 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-[10px] font-semibold shrink-0">${escapeHtml(initial)}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <a href="${escapeHtml(app.url || '#')}" target="_blank" rel="noopener" class="text-xs font-medium truncate hover:text-fern ${app.missing ? 'pointer-events-none line-through text-inksoft' : ''}">${escapeHtml(app.name || 'Aplikasi')}</a>
+          <span class="badge ${isTask ? 'badge-dept' : 'badge-cat'} shrink-0" title="${isTask ? 'Menempel lewat task' : 'Tautan langsung ke node ini'}">${isTask ? 'Task' : 'Node'}</span>
+        </div>
+        ${app.linkLabel ? `<p class="text-[10px] text-inksoft truncate">${escapeHtml(app.linkLabel)}</p>` : ''}
+      </div>
+      ${app.linkId ? `<button type="button" class="btn btn-ghost btn-sm h-6 w-6 p-0 text-berry hover:bg-berry/10 shrink-0" data-node-app-unlink="${escapeHtml(app.linkId)}" title="Lepas tautan aplikasi" aria-label="Lepas tautan aplikasi"><i data-lucide="unlink" class="h-3 w-3"></i></button>` : ''}
+    </div>`;
+}
+
+function nodeTaskApps(node) {
+  const seen = {};
+  const out = [];
+  ((node && node.tasks) || []).forEach((t) => {
+    (t.applications || []).forEach((a) => {
+      const key = String(a.id || a.url || a.name || '');
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push(a);
+    });
+  });
+  return out;
+}
+
+function nodeAppsSectionHtml(node, directLinks) {
+  const fromTasks = nodeTaskApps(node);
+  const total = directLinks.length + fromTasks.length;
+  return `
+    <div class="flex items-center justify-between mb-1.5">
+      <p class="text-xs font-medium text-clay flex items-center gap-1"><i data-lucide="app-window" class="h-3 w-3"></i>Aplikasi terkait</p>
+      <span class="text-[10px] font-mono text-inksoft" title="Langsung ke node + dari task">${total}</span>
+    </div>
+    <p class="text-[10px] text-inksoft mb-2">Tautan langsung dari node ini ke Application Hub — tanpa perlu lewat task.</p>
+    ${total === 0 ? `<p class="text-[11px] text-inksoft mb-2">Belum ada aplikasi yang ditautkan.</p>` : ''}
+    ${directLinks.length ? `
+      <div class="space-y-1.5 mb-2">
+        ${directLinks.map((a) => nodeAppRow(a, 'node')).join('')}
+      </div>` : ''}
+    ${fromTasks.length ? `
+      <div class="space-y-1.5 mb-2">
+        <p class="text-[9px] font-semibold uppercase tracking-wide text-inksoft">Dari task node</p>
+        ${fromTasks.map((a) => nodeAppRow(a, 'task')).join('')}
+      </div>` : ''}
+    <div class="flex flex-col gap-1.5">
+      <button type="button" class="btn btn-primary btn-sm w-full justify-start" data-node-app-link-existing><i data-lucide="link" class="h-3.5 w-3.5"></i>Tautkan aplikasi ke node ini</button>
+      <button type="button" class="btn btn-secondary btn-sm w-full justify-start" data-node-app-link-new><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah aplikasi baru & tautkan</button>
+    </div>`;
+}
+
+function wireNodeAppsSection(node) {
+  const box = document.getElementById('node-apps-section');
+  if (!box || !node) return;
+
+  const openDialog = async (mode) => {
+    // Node yang baru ditambahkan belum ada di database sampai canvas disimpan.
+    if (!Store.findById('nodes', 'node_id', node.id)) {
+      await saveCanvas();
+      if (!Store.findById('nodes', 'node_id', node.id)) {
+        toast('Simpan canvas dulu sebelum menautkan aplikasi', 'error');
+        return;
+      }
+    }
+    openWorkflowAppLinkDialog({
+      workflowId: State.currentWorkflowId,
+      nodes: canvasNodeTargetsForApp(),
+      mode,
+      targetType: 'node',
+      targetNodeId: node.id,
+      onDone: () => refreshNodeAppsSection(node),
+    });
+  };
+
+  box.querySelectorAll('[data-node-app-link-existing]').forEach((b) => {
+    b.addEventListener('click', () => openDialog('existing'));
+  });
+  box.querySelectorAll('[data-node-app-link-new]').forEach((b) => {
+    b.addEventListener('click', () => openDialog('new'));
+  });
+  box.querySelectorAll('[data-node-app-unlink]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      const linkId = btn.dataset.nodeAppUnlink;
+      const ok = await showConfirmDialog({
+        title: 'Lepas tautan aplikasi?',
+        message: 'Aplikasi akan dilepas dari node ini. Aplikasinya tetap tersimpan di Application Hub.',
+        confirmText: 'Lepas',
+        cancelText: 'Batal',
+        danger: true,
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      const res = await callServer('unlinkWorkflowAppLink', { workflowId: State.currentWorkflowId, linkId });
+      if (!res || !res.success) {
+        btn.disabled = false;
+        toast((res && res.message) || 'Gagal melepas tautan', 'error');
+        return;
+      }
+      toast('Tautan aplikasi dilepas');
+      refreshNodeAppsSection(node);
+    });
+  });
+}
+
+async function refreshNodeAppsSection(node) {
+  const box = document.getElementById('node-apps-section');
+  if (!box || !node || !node.id) return;
+  let directLinks = [];
+  if (State.currentWorkflowId) {
+    const res = await callServer('getWorkflowAppLinks', State.currentWorkflowId);
+    if (res && res.success) {
+      directLinks = (res.data || [])
+        .filter((l) => l.targetType === 'node' && String(l.targetNodeId) === String(node.id))
+        .map((l) => ({
+          name: l.name, url: l.url, linkLabel: l.linkLabel, missing: l.missing, linkId: l.id,
+        }));
+    }
+  }
+  // Panel bisa sudah berganti node saat data dimuat.
+  const selectedId = State.selectedNode && State.selectedNode.customId;
+  const currentBox = document.getElementById('node-apps-section');
+  if (!currentBox || String(selectedId) !== String(node.id)) return;
+  currentBox.innerHTML = nodeAppsSectionHtml(node, directLinks);
+  refreshIcons();
+  wireNodeAppsSection(node);
+}
+
 function renderNodePanel(node) {
   const panel = $('#node-detail-panel');
   const body = $('#node-detail-body');
@@ -2742,14 +2901,6 @@ function renderNodePanel(node) {
   const avgTaskProgress = taskCount
     ? Math.round(linkedTasks.reduce((sum, t) => sum + (Number(t.progress) || 0), 0) / taskCount)
     : 0;
-  const linkedApps = [];
-  const seenLinkedApps = {};
-  linkedTasks.forEach(t => (t.applications || []).forEach(a => {
-    const key = String(a.id || a.url || a.name || '');
-    if (seenLinkedApps[key]) return;
-    seenLinkedApps[key] = true;
-    linkedApps.push(a);
-  }));
   body.innerHTML = `
     <div class="space-y-4">
       <div class="flex items-center justify-between">
@@ -2810,21 +2961,9 @@ function renderNodePanel(node) {
             <button id="panel-link-existing-task" class="btn btn-secondary btn-sm w-full justify-start"><i data-lucide="link" class="h-3.5 w-3.5"></i>Hubungkan task yang sudah ada</button>
           </div>
         `}
-        ${linkedApps.length > 0 ? `
-          <div class="mt-3 pt-3 border-t border-fernlight/30 space-y-1.5">
-            <p class="label-mono text-[9px] text-ferndeep/80">Aplikasi Terkait</p>
-            ${linkedApps.map(a => `
-              <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="flex items-center gap-2 p-1.5 rounded-md border border-line bg-card hover:bg-paper transition-colors group">
-                <div class="h-6 w-6 rounded-md bg-fernlight/15 text-ferndeep flex items-center justify-center text-[10px] font-semibold shrink-0">${escapeHtml((a.name || '?').charAt(0).toUpperCase())}</div>
-                <div class="flex-1 min-w-0">
-                  <p class="text-xs font-medium truncate">${escapeHtml(a.name || '')}</p>
-                  ${a.linkLabel ? `<p class="text-[10px] text-inksoft truncate">${escapeHtml(a.linkLabel)}</p>` : ''}
-                </div>
-                <i data-lucide="external-link" class="h-3 w-3 text-inksoft/60 group-hover:text-fern shrink-0"></i>
-              </a>
-            `).join('')}
-          </div>
-        ` : ''}
+      </div>
+      <div id="node-apps-section" class="p-3 rounded-md border border-clay/40 bg-clay/5">
+        <p class="text-[11px] text-inksoft">Memuat aplikasi terkait...</p>
       </div>
       ${node.nodeType === 'workflow_link' ? `
         <div class="p-3 rounded-md border border-clay/40 bg-clay/5">
@@ -2950,6 +3089,7 @@ function renderNodePanel(node) {
     }
   }
   mountCommentThread($('#node-comments'), 'node', node.id);
+  refreshNodeAppsSection(node);
 }
 
 async function saveNodeFromPanel() {
